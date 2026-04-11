@@ -26,6 +26,12 @@
         <span class="hint">Used as the folder name in the repo</span>
       </div>
 
+      <div class="field">
+        <label for="branch-name">Branch Name</label>
+        <input type="text" id="branch-name" placeholder="">
+        <span class="hint">A new branch will be created from the base branch</span>
+      </div>
+
       <button id="save-btn" class="btn btn-primary btn-block">Save Snapshot</button>
     </div>
 
@@ -40,7 +46,9 @@
     <!-- Success result -->
     <div id="result" class="section" hidden>
       <div class="result-success">
-        <div class="result-label">Saved to:</div>
+        <div class="result-label">Branch:</div>
+        <div class="result-branch" id="result-branch"></div>
+        <div class="result-label">File:</div>
         <div class="result-path" id="result-path"></div>
         <button id="copy-path" class="btn btn-secondary btn-sm">Copy Path</button>
       </div>

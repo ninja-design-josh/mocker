@@ -130,7 +130,7 @@ function extractLinkHrefs(html) {
 /**
  * Main capture orchestration.
  */
-async function captureSnapshot(tabId, snapshotName, sourceUrl) {
+async function captureSnapshot(tabId, snapshotName, branchName, sourceUrl) {
   // Step 1: Inject content script to capture DOM
   sendProgress(10, 'Capturing page DOM...');
 
@@ -366,7 +366,7 @@ async function captureSnapshot(tabId, snapshotName, sourceUrl) {
   // Step 8: Commit to GitLab
   sendProgress(90, 'Saving to GitLab...');
 
-  const result = await commitSnapshot(snapshotName, snapshot);
+  const result = await commitSnapshot(snapshotName, branchName, snapshot);
 
   sendProgress(100, 'Done!');
   return result;
@@ -377,7 +377,7 @@ async function captureSnapshot(tabId, snapshotName, sourceUrl) {
  */
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.action === 'captureSnapshot') {
-    captureSnapshot(msg.tabId, msg.snapshotName, msg.sourceUrl)
+    captureSnapshot(msg.tabId, msg.snapshotName, msg.branchName, msg.sourceUrl)
       .then(result => sendResponse(result))
       .catch(err => sendResponse({ error: err.message || 'Unknown error' }));
     return true; // Indicates async response
