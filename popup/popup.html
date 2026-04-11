@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="popup">
+    <div class="header">
+      <h1>Mocker</h1>
+    </div>
+
+    <!-- Shown when settings are not configured -->
+    <div id="no-config" class="section" hidden>
+      <p>GitLab settings not configured.</p>
+      <button id="open-options" class="btn btn-secondary btn-block">Open Settings</button>
+    </div>
+
+    <!-- Main capture form -->
+    <div id="capture-form" class="section" hidden>
+      <div class="current-url" id="current-url" title=""></div>
+
+      <div class="field">
+        <label for="snapshot-name">Snapshot Name</label>
+        <input type="text" id="snapshot-name" placeholder="e.g. dashboard">
+        <span class="hint">Used as the folder name in the repo</span>
+      </div>
+
+      <button id="save-btn" class="btn btn-primary btn-block">Save Snapshot</button>
+    </div>
+
+    <!-- Progress area -->
+    <div id="progress" class="section" hidden>
+      <div class="progress-bar">
+        <div class="progress-fill" id="progress-fill"></div>
+      </div>
+      <div class="progress-text" id="progress-text">Starting...</div>
+    </div>
+
+    <!-- Success result -->
+    <div id="result" class="section" hidden>
+      <div class="result-success">
+        <div class="result-label">Saved to:</div>
+        <div class="result-path" id="result-path"></div>
+        <button id="copy-path" class="btn btn-secondary btn-sm">Copy Path</button>
+      </div>
+      <button id="new-snapshot" class="btn btn-primary btn-block">New Snapshot</button>
+    </div>
+
+    <!-- Error display -->
+    <div id="error" class="section" hidden>
+      <div class="error-text" id="error-text"></div>
+      <button id="retry-btn" class="btn btn-primary btn-block">Try Again</button>
+    </div>
+  </div>
+  <script src="popup.js" type="module"></script>
+</body>
+</html>
