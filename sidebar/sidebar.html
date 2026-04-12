@@ -41,9 +41,13 @@
           </div>
 
           <div class="field">
-            <label for="branch-name">Branch Name</label>
+            <label>Branch</label>
+            <div class="branch-toggle">
+              <button type="button" class="toggle-btn active" data-mode="new">New branch</button>
+              <button type="button" class="toggle-btn" data-mode="existing">Existing branch</button>
+            </div>
             <input type="text" id="branch-name" placeholder="">
-            <span class="hint">A new branch will be created from the base branch</span>
+            <span class="hint" id="branch-hint">A new branch will be created from the base branch</span>
           </div>
 
           <button id="save-btn" class="btn btn-primary btn-block">Save Snapshot</button>
@@ -74,6 +78,7 @@
         </div>
 
         <div class="card" id="remix-section" hidden>
+          <div id="remix-backend-indicator" class="remix-indicator"></div>
           <div class="field">
             <label for="remix-prompt">Remix this</label>
             <textarea id="remix-prompt" rows="3" placeholder="e.g. Make it dark mode with a purple accent..."></textarea>

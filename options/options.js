@@ -2,11 +2,15 @@ const STORAGE_KEY = 'mocker_settings';
 
 const form = document.getElementById('settings-form');
 const testBtn = document.getElementById('test-btn');
+const testBackendBtn = document.getElementById('test-backend-btn');
 const createRepoBtn = document.getElementById('create-repo-btn');
 const statusEl = document.getElementById('status');
 const providerSelect = document.getElementById('provider');
 const gitlabFields = document.getElementById('gitlab-fields');
 const githubFields = document.getElementById('github-fields');
+const storageModeSelect = document.getElementById('storage-mode');
+const vercelFields = document.getElementById('vercel-fields');
+const repoRemixFields = document.getElementById('repo-remix-fields');
 
 const fields = {
   provider: providerSelect,
@@ -20,6 +24,10 @@ const fields = {
   basePath: document.getElementById('base-path'),
   repoVisibility: document.getElementById('repo-visibility'),
   githubPages: document.getElementById('github-pages'),
+  storageMode: storageModeSelect,
+  vercelUrl: document.getElementById('vercel-url'),
+  vercelApiKey: document.getElementById('vercel-api-key'),
+  alsoCommitToRepo: document.getElementById('also-commit-to-repo'),
   claudeApiKey: document.getElementById('claude-api-key'),
 };
 
@@ -40,7 +48,16 @@ function updateProviderFields() {
   hideStatus();
 }
 
+function updateStorageModeFields() {
+  const mode = storageModeSelect.value;
+  vercelFields.hidden = mode !== 'vercel';
+  repoRemixFields.hidden = mode !== 'repo';
+  testBackendBtn.hidden = mode !== 'vercel';
+  hideStatus();
+}
+
 providerSelect.addEventListener('change', updateProviderFields);
+storageModeSelect.addEventListener('change', updateStorageModeFields);
 
 function getFormValues() {
   return {
@@ -53,6 +70,10 @@ function getFormValues() {
     githubRepo: fields.githubRepo.value.trim(),
     branch: fields.branch.value.trim() || 'main',
     basePath: fields.basePath.value.trim() || 'snapshots',
+    storageMode: fields.storageMode.value,
+    vercelUrl: fields.vercelUrl.value.replace(/\/+$/, ''),
+    vercelApiKey: fields.vercelApiKey.value.trim(),
+    alsoCommitToRepo: fields.alsoCommitToRepo.checked,
     claudeApiKey: fields.claudeApiKey.value.trim(),
   };
 }
@@ -73,7 +94,10 @@ function validateForProvider(values) {
 async function loadSettings() {
   const result = await chrome.storage.sync.get(STORAGE_KEY);
   const settings = result[STORAGE_KEY];
-  if (!settings) return;
+  if (!settings) {
+    updateStorageModeFields();
+    return;
+  }
 
   fields.provider.value = settings.provider || 'gitlab';
   fields.gitlabUrl.value = settings.gitlabUrl || '';
@@ -84,9 +108,14 @@ async function loadSettings() {
   fields.githubRepo.value = settings.githubRepo || '';
   fields.branch.value = settings.branch || 'main';
   fields.basePath.value = settings.basePath || 'snapshots';
+  fields.storageMode.value = settings.storageMode || 'vercel';
+  fields.vercelUrl.value = settings.vercelUrl || '';
+  fields.vercelApiKey.value = settings.vercelApiKey || '';
+  fields.alsoCommitToRepo.checked = !!settings.alsoCommitToRepo;
   fields.claudeApiKey.value = settings.claudeApiKey || '';
 
   updateProviderFields();
+  updateStorageModeFields();
 }
 
 async function saveSettings(values) {
@@ -295,6 +324,34 @@ testBtn.addEventListener('click', async () => {
     showStatus(`Connection failed: ${err.message}`, 'error');
   } finally {
     testBtn.disabled = false;
+  }
+});
+
+testBackendBtn.addEventListener('click', async () => {
+  const values = getFormValues();
+  if (!values.vercelUrl || !values.vercelApiKey) {
+    showStatus('Please fill in Backend URL and Backend API Key.', 'error');
+    return;
+  }
+
+  testBackendBtn.disabled = true;
+  showStatus('Testing backend connection...', 'info');
+
+  try {
+    const resp = await fetch(`${values.vercelUrl}/api/health`, {
+      headers: { 'Authorization': `Bearer ${values.vercelApiKey}` },
+    });
+
+    if (!resp.ok) {
+      throw new Error(`Backend responded with ${resp.status}`);
+    }
+
+    const data = await resp.json();
+    showStatus(`Backend connected (${data.timestamp})`, 'success');
+  } catch (err) {
+    showStatus(`Backend connection failed: ${err.message}`, 'error');
+  } finally {
+    testBackendBtn.disabled = false;
   }
 });
 

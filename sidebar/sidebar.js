@@ -11,6 +11,10 @@ const sections = {
 const currentUrlEl = document.getElementById('current-url');
 const snapshotNameInput = document.getElementById('snapshot-name');
 const branchNameInput = document.getElementById('branch-name');
+const branchHint = document.getElementById('branch-hint');
+const branchToggleBtns = document.querySelectorAll('.toggle-btn');
+
+let branchMode = 'new';
 const saveBtn = document.getElementById('save-btn');
 const progressFill = document.getElementById('progress-fill');
 const progressText = document.getElementById('progress-text');
@@ -61,7 +65,26 @@ function isConfigured(settings) {
   return !!(settings.gitlabUrl && settings.accessToken && settings.projectId);
 }
 
+function setBranchMode(mode) {
+  branchMode = mode;
+  branchToggleBtns.forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.mode === mode);
+  });
+  if (mode === 'new') {
+    branchHint.textContent = 'A new branch will be created from the base branch';
+  } else {
+    branchNameInput.value = '';
+    branchNameInput.placeholder = 'main';
+    branchHint.textContent = 'Snapshot will be committed to this branch';
+  }
+}
+
+branchToggleBtns.forEach(btn => {
+  btn.addEventListener('click', () => setBranchMode(btn.dataset.mode));
+});
+
 let hasClaudeKey = false;
+let hasVercelBackend = false;
 
 /**
  * Refresh the form fields based on the currently active tab.
@@ -73,7 +96,9 @@ async function refreshActiveTab() {
   currentUrlEl.textContent = tab.url;
   currentUrlEl.title = tab.url;
   snapshotNameInput.value = slugFromUrl(tab.url);
-  branchNameInput.value = generateBranchName(tab.url);
+  if (branchMode === 'new') {
+    branchNameInput.value = generateBranchName(tab.url);
+  }
 }
 
 async function init() {
@@ -81,6 +106,7 @@ async function init() {
   const settings = result[STORAGE_KEY];
 
   hasClaudeKey = !!(settings?.claudeApiKey);
+  hasVercelBackend = !!(settings?.vercelUrl && settings?.vercelApiKey);
 
   if (!isConfigured(settings)) {
     showSection('noConfig');
@@ -96,7 +122,9 @@ async function init() {
   currentUrlEl.textContent = tab.url;
   currentUrlEl.title = tab.url;
   snapshotNameInput.value = slugFromUrl(tab.url);
-  branchNameInput.value = generateBranchName(tab.url);
+  if (branchMode === 'new') {
+    branchNameInput.value = generateBranchName(tab.url);
+  }
   showSection('captureForm');
 }
 
@@ -138,7 +166,9 @@ saveBtn.addEventListener('click', async () => {
     resultUrl.href = response.fileUrl;
     resultUrl.textContent = response.fileUrl;
     showSection('result');
-    remixSection.hidden = !hasClaudeKey;
+    const canRemix = hasClaudeKey || hasVercelBackend;
+    remixSection.hidden = !canRemix;
+    updateRemixIndicator();
     resetRemixState();
   } catch (err) {
     errorText.textContent = err.message || 'Unknown error';
@@ -173,6 +203,20 @@ document.getElementById('copy-path').addEventListener('click', () => {
   }, 1500);
 });
 
+function updateRemixIndicator() {
+  const el = document.getElementById('remix-backend-indicator');
+  if (!el) return;
+  if (hasVercelBackend) {
+    el.textContent = 'Using Vercel backend';
+    el.className = 'remix-indicator vercel';
+  } else if (hasClaudeKey) {
+    el.textContent = 'Using direct API';
+    el.className = 'remix-indicator direct';
+  } else {
+    el.textContent = '';
+  }
+}
+
 function resetRemixState() {
   remixPrompt.value = '';
   remixBtn.disabled = false;
@@ -186,11 +230,13 @@ function resetRemixState() {
 document.getElementById('new-snapshot').addEventListener('click', () => {
   resetRemixState();
   remixSection.hidden = true;
+  setBranchMode('new');
   showSection('captureForm');
   refreshActiveTab();
 });
 
 document.getElementById('retry-btn').addEventListener('click', () => {
+  setBranchMode('new');
   showSection('captureForm');
   refreshActiveTab();
 });

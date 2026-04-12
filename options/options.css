@@ -144,3 +144,19 @@ select:focus {
   background: #e0e7ff;
   color: #3730a3;
 }
+
+.divider {
+  border: none;
+  border-top: 1px solid #e5e5ea;
+  margin: 24px 0 16px;
+}
+
+.section-title {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 16px;
+}
+
+.actions {
+  flex-wrap: wrap;
+}

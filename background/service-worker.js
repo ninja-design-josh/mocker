@@ -10,6 +10,46 @@ const SIZE_WARNING_BYTES = 10 * 1024 * 1024; // 10 MB
 
 let lastCapture = null;
 
+function openCaptureDb() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open('mocker_captures', 1);
+    req.onupgradeneeded = () => req.result.createObjectStore('captures');
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function saveLastCapture(capture) {
+  lastCapture = capture;
+  try {
+    const db = await openCaptureDb();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction('captures', 'readwrite');
+      tx.objectStore('captures').put(capture, 'last');
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch {
+    // IndexedDB unavailable — in-memory only
+  }
+}
+
+async function loadLastCapture() {
+  if (lastCapture) return lastCapture;
+  try {
+    const db = await openCaptureDb();
+    lastCapture = await new Promise((resolve, reject) => {
+      const tx = db.transaction('captures', 'readonly');
+      const req = tx.objectStore('captures').get('last');
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => reject(req.error);
+    });
+  } catch {
+    // IndexedDB unavailable
+  }
+  return lastCapture;
+}
+
 /**
  * Send progress updates to the popup.
  */
@@ -347,7 +387,60 @@ async function captureSnapshot(tabId, snapshotName, branchName, sourceUrl) {
       );
       doc.documentElement.insertBefore(comment, doc.documentElement.firstChild);
 
-      return '<!DOCTYPE html>\n' + doc.documentElement.outerHTML;
+      // Lightweight recursive DOM serializer for readable, indented HTML output
+      function prettifyHtml(node, depth) {
+        const indent = '  '.repeat(depth);
+        const inlineTags = new Set([
+          'a', 'abbr', 'b', 'bdo', 'br', 'cite', 'code', 'em', 'i', 'img',
+          'input', 'kbd', 'label', 'link', 'mark', 'meta', 'q', 's', 'samp',
+          'small', 'span', 'strong', 'sub', 'sup', 'time', 'u', 'var', 'wbr',
+        ]);
+        const voidTags = new Set([
+          'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input',
+          'link', 'meta', 'source', 'track', 'wbr',
+        ]);
+        const verbatimTags = new Set(['style', 'pre', 'code', 'script', 'textarea']);
+
+        if (node.nodeType === Node.TEXT_NODE) {
+          const text = node.textContent;
+          if (!text.trim()) return '';
+          return indent + text.trim();
+        }
+        if (node.nodeType === Node.COMMENT_NODE) {
+          return indent + '<!--' + node.textContent + '-->';
+        }
+        if (node.nodeType !== Node.ELEMENT_NODE) return '';
+
+        const tag = node.tagName.toLowerCase();
+        let attrs = '';
+        for (const attr of node.attributes) {
+          attrs += ` ${attr.name}="${attr.value.replace(/"/g, '&quot;')}"`;
+        }
+
+        if (voidTags.has(tag)) {
+          return `${indent}<${tag}${attrs}>`;
+        }
+
+        if (verbatimTags.has(tag)) {
+          return `${indent}<${tag}${attrs}>${node.innerHTML}</${tag}>`;
+        }
+
+        const children = [];
+        for (const child of node.childNodes) {
+          const s = prettifyHtml(child, depth + 1);
+          if (s) children.push(s);
+        }
+
+        const isInline = inlineTags.has(tag);
+        if (isInline || children.length === 0) {
+          const inner = children.map(c => c.trim()).join('');
+          return `${indent}<${tag}${attrs}>${inner}</${tag}>`;
+        }
+
+        return `${indent}<${tag}${attrs}>\n${children.join('\n')}\n${indent}</${tag}>`;
+      }
+
+      return '<!DOCTYPE html>\n' + prettifyHtml(doc.documentElement, 0);
     },
     args: [{
       html,
@@ -382,7 +475,7 @@ async function captureSnapshot(tabId, snapshotName, branchName, sourceUrl) {
 
   sendProgress(100, 'Done!');
 
-  lastCapture = { html: snapshot, snapshotName, branchName };
+  await saveLastCapture({ html: snapshot, snapshotName, branchName });
 
   return result;
 }
@@ -418,16 +511,168 @@ function sendRemixProgress(current, total, text) {
 }
 
 /**
- * Call Claude API to generate a remix variation, then commit it.
+ * Upload a blob directly to Vercel Blob storage via client upload.
+ * Step 1: Get a client token from our backend.
+ * Step 2: PUT directly to Vercel Blob (bypasses function body limits).
  */
-async function remixSnapshot(prompt, count) {
-  if (!lastCapture) {
-    throw new Error('No snapshot captured yet. Capture a snapshot first.');
+async function uploadToBlob(vercelUrl, vercelApiKey, pathname, blob) {
+  // Step 1: Get upload token
+  const tokenResp = await fetch(`${vercelUrl}/api/upload-token`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${vercelApiKey}`,
+    },
+    body: JSON.stringify({
+      type: 'blob.generate-client-token',
+      payload: {
+        pathname,
+        callbackUrl: `${vercelUrl}/api/upload-token`,
+      },
+    }),
+  });
+
+  if (!tokenResp.ok) {
+    const text = await tokenResp.text();
+    throw new Error(`Failed to get upload token: ${tokenResp.status} ${text}`);
   }
 
-  const settingsResult = await chrome.storage.sync.get(STORAGE_KEY);
-  const settings = settingsResult[STORAGE_KEY];
-  const claudeApiKey = settings?.claudeApiKey;
+  const { clientToken } = await tokenResp.json();
+
+  // Step 2: Upload directly to Vercel Blob
+  const uploadResp = await fetch(
+    `https://blob.vercel-storage.com/${pathname}`,
+    {
+      method: 'PUT',
+      headers: {
+        'Authorization': `Bearer ${clientToken}`,
+        'x-content-type': blob.type,
+        'x-cache-control-max-age': '31536000',
+      },
+      body: blob,
+    }
+  );
+
+  if (!uploadResp.ok) {
+    const text = await uploadResp.text();
+    throw new Error(`Blob upload failed: ${uploadResp.status} ${text}`);
+  }
+
+  const result = await uploadResp.json();
+  return result.url;
+}
+
+/**
+ * Remix via Vercel backend (Agent SDK).
+ * Streams SSE from the backend and forwards progress to the sidebar.
+ */
+async function remixViaVercel(prompt, count, settings) {
+  const { vercelUrl, vercelApiKey, alsoCommitToRepo } = settings;
+  const provider = settings.provider || 'gitlab';
+  const commit = provider === 'github' ? githubCommit : gitlabCommit;
+
+  const { strippedHtml, dataUriMap } = stripDataUris(lastCapture.html);
+  const snapshotName = lastCapture.snapshotName;
+
+  // Always upload stripped HTML and data URI map to Blob first
+  // (Vercel functions have a 4.5MB body limit)
+  sendRemixProgress(0, count, 'Uploading snapshot to backend...');
+
+  const snapshotBlobUrl = await uploadToBlob(
+    vercelUrl, vercelApiKey,
+    `mocker/${snapshotName}-stripped.html`,
+    new Blob([strippedHtml], { type: 'text/html' })
+  );
+
+  const mapBlobUrl = await uploadToBlob(
+    vercelUrl, vercelApiKey,
+    `mocker/${snapshotName}-map.json`,
+    new Blob([JSON.stringify(dataUriMap)], { type: 'application/json' })
+  );
+
+  const body = {
+    snapshotBlobId: snapshotBlobUrl,
+    dataUriMapBlobId: mapBlobUrl,
+    prompt,
+    count,
+    snapshotName,
+  };
+
+  // Call remix endpoint — SSE stream
+  sendRemixProgress(0, count, 'Starting remix...');
+
+  const resp = await fetch(`${vercelUrl}/api/remix`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${vercelApiKey}`,
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(`Remix backend error (${resp.status}): ${text}`);
+  }
+
+  // Parse SSE stream using ReadableStream (EventSource not available in service workers)
+  const reader = resp.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  const results = [];
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || '';
+
+    let currentEvent = '';
+    for (const line of lines) {
+      if (line.startsWith('event: ')) {
+        currentEvent = line.slice(7).trim();
+      } else if (line.startsWith('data: ') && currentEvent) {
+        const data = JSON.parse(line.slice(6));
+
+        if (currentEvent === 'progress') {
+          sendRemixProgress(data.variation || 0, data.total || count, data.step || '');
+        } else if (currentEvent === 'variation-complete') {
+          results.push({ fileName: data.fileName, fileUrl: data.blobUrl });
+        } else if (currentEvent === 'error') {
+          throw new Error(data.message || 'Remix failed on backend');
+        }
+        currentEvent = '';
+      }
+    }
+  }
+
+  // Optionally commit each remix to Git repo
+  if (alsoCommitToRepo) {
+    for (let i = 0; i < results.length; i++) {
+      const r = results[i];
+      sendRemixProgress(i + 1, results.length, `Committing ${r.fileName} to repo...`);
+      const htmlResp = await fetch(r.fileUrl);
+      const htmlContent = await htmlResp.text();
+      const commitResult = await commit(
+        snapshotName,
+        lastCapture.branchName,
+        htmlContent,
+        r.fileName
+      );
+      r.fileUrl = commitResult.fileUrl;
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Remix via direct Claude API call (browser-side, existing flow).
+ */
+async function remixViaRepo(prompt, count, settings) {
+  const claudeApiKey = settings.claudeApiKey;
 
   if (!claudeApiKey) {
     throw new Error('Claude API key not configured. Add it in Settings.');
@@ -451,9 +696,10 @@ async function remixSnapshot(prompt, count) {
         'anthropic-dangerous-direct-browser-access': 'true',
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-5-20250929',
+        model: 'claude-opus-4-6',
         max_tokens: 64000,
-        system: 'You are an expert web developer. Modify this HTML page according to the user\'s instructions. Return ONLY the complete modified HTML — no explanation, no markdown fences. Preserve all {{DATAURI_N}} placeholders exactly as-is.',
+        thinking: { type: 'adaptive' },
+        system: 'You are an expert web developer. You will receive a well-structured, indented HTML page.\nModify it according to the user\'s instructions. Return the COMPLETE modified HTML.\nRules:\n- Preserve the indentation and formatting style of the original\n- Preserve all {{DATAURI_N}} placeholders exactly as-is\n- No explanations, no markdown fences — only the HTML',
         messages: [
           {
             role: 'user',
@@ -469,7 +715,7 @@ async function remixSnapshot(prompt, count) {
     }
 
     const data = await resp.json();
-    let remixHtml = data.content?.[0]?.text || '';
+    let remixHtml = data.content?.find(b => b.type === 'text')?.text || '';
 
     // Strip markdown fences if Claude wrapped the response
     remixHtml = remixHtml.replace(/^```html?\n?/i, '').replace(/\n?```$/i, '');
@@ -490,6 +736,30 @@ async function remixSnapshot(prompt, count) {
   }
 
   return results;
+}
+
+/**
+ * Call Claude to generate remix variations.
+ * Dispatches to Vercel backend or direct API based on storage mode.
+ */
+async function remixSnapshot(prompt, count) {
+  await loadLastCapture();
+  if (!lastCapture) {
+    throw new Error('No snapshot captured yet. Capture a snapshot first.');
+  }
+
+  const settingsResult = await chrome.storage.sync.get(STORAGE_KEY);
+  const settings = settingsResult[STORAGE_KEY];
+  const storageMode = settings?.storageMode || 'vercel';
+
+  if (storageMode === 'vercel') {
+    if (!settings?.vercelUrl || !settings?.vercelApiKey) {
+      throw new Error('Vercel backend not configured. Add Backend URL and API Key in Settings.');
+    }
+    return remixViaVercel(prompt, count, settings);
+  }
+
+  return remixViaRepo(prompt, count, settings);
 }
 
 /**
