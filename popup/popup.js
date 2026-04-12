@@ -46,11 +46,20 @@ function setProgress(percent, text) {
   progressText.textContent = text;
 }
 
+function isConfigured(settings) {
+  if (!settings) return false;
+  const provider = settings.provider || 'gitlab';
+  if (provider === 'github') {
+    return !!(settings.githubToken && settings.githubOwner && settings.githubRepo);
+  }
+  return !!(settings.gitlabUrl && settings.accessToken && settings.projectId);
+}
+
 async function init() {
   const result = await chrome.storage.sync.get(STORAGE_KEY);
   const settings = result[STORAGE_KEY];
 
-  if (!settings || !settings.gitlabUrl || !settings.accessToken || !settings.projectId) {
+  if (!isConfigured(settings)) {
     showSection('noConfig');
     return;
   }

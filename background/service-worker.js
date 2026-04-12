@@ -1,5 +1,8 @@
-import { commitSnapshot } from '../lib/gitlab-api.js';
+import { commitSnapshot as gitlabCommit } from '../lib/gitlab-api.js';
+import { commitSnapshot as githubCommit } from '../lib/github-api.js';
 import { guessMimeType, arrayBufferToBase64 } from '../lib/utils.js';
+
+const STORAGE_KEY = 'mocker_settings';
 
 const SIZE_WARNING_BYTES = 10 * 1024 * 1024; // 10 MB
 
@@ -363,10 +366,15 @@ async function captureSnapshot(tabId, snapshotName, branchName, sourceUrl) {
     console.warn(`Mocker: Snapshot is ${sizeMB} MB — this is large and may be slow to commit.`);
   }
 
-  // Step 8: Commit to GitLab
-  sendProgress(90, 'Saving to GitLab...');
+  // Step 8: Commit to provider
+  const settingsResult = await chrome.storage.sync.get(STORAGE_KEY);
+  const provider = settingsResult[STORAGE_KEY]?.provider || 'gitlab';
+  const providerName = provider === 'github' ? 'GitHub' : 'GitLab';
+  const commit = provider === 'github' ? githubCommit : gitlabCommit;
 
-  const result = await commitSnapshot(snapshotName, branchName, snapshot);
+  sendProgress(90, `Saving to ${providerName}...`);
+
+  const result = await commit(snapshotName, branchName, snapshot);
 
   sendProgress(100, 'Done!');
   return result;

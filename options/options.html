@@ -9,25 +9,55 @@
 <body>
   <div class="container">
     <h1>Mocker Settings</h1>
-    <p class="subtitle">Configure your GitLab connection for saving snapshots.</p>
+    <p class="subtitle">Configure your connection for saving snapshots.</p>
 
     <form id="settings-form">
       <div class="field">
-        <label for="gitlab-url">GitLab URL</label>
-        <input type="url" id="gitlab-url" placeholder="https://gitlab.com" required>
-        <span class="hint">Base URL of your GitLab instance</span>
+        <label for="provider">Provider</label>
+        <select id="provider">
+          <option value="gitlab">GitLab</option>
+          <option value="github">GitHub</option>
+        </select>
       </div>
 
-      <div class="field">
-        <label for="access-token">Personal Access Token</label>
-        <input type="password" id="access-token" placeholder="glpat-xxxxxxxxxxxx" required>
-        <span class="hint">Needs <code>api</code> scope. Create one at GitLab &rarr; Preferences &rarr; Access Tokens.</span>
+      <div id="gitlab-fields">
+        <div class="field">
+          <label for="gitlab-url">GitLab URL</label>
+          <input type="url" id="gitlab-url" placeholder="https://gitlab.com">
+          <span class="hint">Base URL of your GitLab instance</span>
+        </div>
+
+        <div class="field">
+          <label for="access-token">Personal Access Token</label>
+          <input type="password" id="access-token" placeholder="glpat-xxxxxxxxxxxx">
+          <span class="hint">Needs <code>api</code> scope. Create one at GitLab &rarr; Preferences &rarr; Access Tokens.</span>
+        </div>
+
+        <div class="field">
+          <label for="project-id">Project ID or Path</label>
+          <input type="text" id="project-id" placeholder="12345 or group/mockups-repo">
+          <span class="hint">Numeric ID or URL-encoded path (e.g., <code>my-group%2Fmy-repo</code>)</span>
+        </div>
       </div>
 
-      <div class="field">
-        <label for="project-id">Project ID or Path</label>
-        <input type="text" id="project-id" placeholder="12345 or group/mockups-repo" required>
-        <span class="hint">Numeric ID or URL-encoded path (e.g., <code>my-group%2Fmy-repo</code>)</span>
+      <div id="github-fields" hidden>
+        <div class="field">
+          <label for="github-token">Personal Access Token</label>
+          <input type="password" id="github-token" placeholder="ghp_xxxxxxxxxxxx">
+          <span class="hint">Needs <code>repo</code> scope. Create one at GitHub &rarr; Settings &rarr; Developer settings &rarr; Tokens.</span>
+        </div>
+
+        <div class="field">
+          <label for="github-owner">Owner</label>
+          <input type="text" id="github-owner" placeholder="username or org-name">
+          <span class="hint">GitHub username or organization that owns the repository</span>
+        </div>
+
+        <div class="field">
+          <label for="github-repo">Repository</label>
+          <input type="text" id="github-repo" placeholder="mockups-repo">
+          <span class="hint">Repository name (not the full URL)</span>
+        </div>
       </div>
 
       <div class="field">
