@@ -16,6 +16,12 @@ const progressFill = document.getElementById('progress-fill');
 const progressText = document.getElementById('progress-text');
 const resultUrl = document.getElementById('result-url');
 const errorText = document.getElementById('error-text');
+const remixSection = document.getElementById('remix-section');
+const remixPrompt = document.getElementById('remix-prompt');
+const remixCount = document.getElementById('remix-count');
+const remixBtn = document.getElementById('remix-btn');
+const remixStatus = document.getElementById('remix-status');
+const remixResults = document.getElementById('remix-results');
 
 function showSection(name) {
   Object.values(sections).forEach(el => el.hidden = true);
@@ -55,9 +61,26 @@ function isConfigured(settings) {
   return !!(settings.gitlabUrl && settings.accessToken && settings.projectId);
 }
 
+let hasClaudeKey = false;
+
+/**
+ * Refresh the form fields based on the currently active tab.
+ */
+async function refreshActiveTab() {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab?.url) return;
+
+  currentUrlEl.textContent = tab.url;
+  currentUrlEl.title = tab.url;
+  snapshotNameInput.value = slugFromUrl(tab.url);
+  branchNameInput.value = generateBranchName(tab.url);
+}
+
 async function init() {
   const result = await chrome.storage.sync.get(STORAGE_KEY);
   const settings = result[STORAGE_KEY];
+
+  hasClaudeKey = !!(settings?.claudeApiKey);
 
   if (!isConfigured(settings)) {
     showSection('noConfig');
@@ -115,6 +138,8 @@ saveBtn.addEventListener('click', async () => {
     resultUrl.href = response.fileUrl;
     resultUrl.textContent = response.fileUrl;
     showSection('result');
+    remixSection.hidden = !hasClaudeKey;
+    resetRemixState();
   } catch (err) {
     errorText.textContent = err.message || 'Unknown error';
     showSection('error');
@@ -130,7 +155,13 @@ chrome.runtime.onMessage.addListener((msg) => {
   }
 });
 
+// Header gear icon
 document.getElementById('open-options').addEventListener('click', () => {
+  chrome.runtime.openOptionsPage();
+});
+
+// Card settings button (no-config section)
+document.getElementById('open-options-card').addEventListener('click', () => {
   chrome.runtime.openOptionsPage();
 });
 
@@ -142,12 +173,101 @@ document.getElementById('copy-path').addEventListener('click', () => {
   }, 1500);
 });
 
+function resetRemixState() {
+  remixPrompt.value = '';
+  remixBtn.disabled = false;
+  remixStatus.hidden = true;
+  remixStatus.textContent = '';
+  remixStatus.className = 'remix-status';
+  remixResults.hidden = true;
+  remixResults.innerHTML = '';
+}
+
 document.getElementById('new-snapshot').addEventListener('click', () => {
+  resetRemixState();
+  remixSection.hidden = true;
   showSection('captureForm');
+  refreshActiveTab();
 });
 
 document.getElementById('retry-btn').addEventListener('click', () => {
   showSection('captureForm');
+  refreshActiveTab();
+});
+
+remixBtn.addEventListener('click', async () => {
+  const prompt = remixPrompt.value.trim();
+  if (!prompt) {
+    remixPrompt.focus();
+    return;
+  }
+
+  const count = parseInt(remixCount.value, 10);
+  remixBtn.disabled = true;
+  remixResults.hidden = true;
+  remixResults.innerHTML = '';
+  remixStatus.hidden = false;
+  remixStatus.className = 'remix-status';
+  remixStatus.textContent = `Generating variation 1 of ${count}...`;
+
+  try {
+    const response = await chrome.runtime.sendMessage({
+      action: 'remixSnapshot',
+      prompt,
+      count,
+    });
+
+    if (response.error) {
+      throw new Error(response.error);
+    }
+
+    remixStatus.textContent = 'Done!';
+    remixResults.hidden = false;
+    for (const r of response.results) {
+      const a = document.createElement('a');
+      a.href = r.fileUrl;
+      a.target = '_blank';
+      a.textContent = `${r.fileName} → ${r.fileUrl}`;
+      remixResults.appendChild(a);
+    }
+  } catch (err) {
+    remixStatus.className = 'remix-status error';
+    remixStatus.textContent = err.message || 'Remix failed';
+  } finally {
+    remixBtn.disabled = false;
+  }
+});
+
+// Listen for remix progress updates
+chrome.runtime.onMessage.addListener((msg) => {
+  if (msg.action === 'remixProgress') {
+    remixStatus.textContent = msg.text;
+  }
+});
+
+// Refresh form when user switches tabs (only if capture form is visible)
+chrome.tabs.onActivated.addListener(() => {
+  if (!sections.captureForm.hidden) {
+    refreshActiveTab();
+  }
+});
+
+// Refresh when a page finishes loading in the active tab
+chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  if (changeInfo.status === 'complete' && !sections.captureForm.hidden) {
+    chrome.tabs.query({ active: true, currentWindow: true }).then(([tab]) => {
+      if (tab && tab.id === tabId) {
+        refreshActiveTab();
+      }
+    });
+  }
+});
+
+// Re-run init when settings change (sidebar stays open, unlike the old popup)
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'sync' && changes[STORAGE_KEY]) {
+    init();
+  }
 });
 
 init();

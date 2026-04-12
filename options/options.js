@@ -2,6 +2,7 @@ const STORAGE_KEY = 'mocker_settings';
 
 const form = document.getElementById('settings-form');
 const testBtn = document.getElementById('test-btn');
+const createRepoBtn = document.getElementById('create-repo-btn');
 const statusEl = document.getElementById('status');
 const providerSelect = document.getElementById('provider');
 const gitlabFields = document.getElementById('gitlab-fields');
@@ -17,6 +18,9 @@ const fields = {
   githubRepo: document.getElementById('github-repo'),
   branch: document.getElementById('branch'),
   basePath: document.getElementById('base-path'),
+  repoVisibility: document.getElementById('repo-visibility'),
+  githubPages: document.getElementById('github-pages'),
+  claudeApiKey: document.getElementById('claude-api-key'),
 };
 
 function showStatus(message, type = 'info') {
@@ -49,6 +53,7 @@ function getFormValues() {
     githubRepo: fields.githubRepo.value.trim(),
     branch: fields.branch.value.trim() || 'main',
     basePath: fields.basePath.value.trim() || 'snapshots',
+    claudeApiKey: fields.claudeApiKey.value.trim(),
   };
 }
 
@@ -79,6 +84,7 @@ async function loadSettings() {
   fields.githubRepo.value = settings.githubRepo || '';
   fields.branch.value = settings.branch || 'main';
   fields.basePath.value = settings.basePath || 'snapshots';
+  fields.claudeApiKey.value = settings.claudeApiKey || '';
 
   updateProviderFields();
 }
@@ -126,6 +132,146 @@ async function testConnection(values) {
 
   return await resp.json();
 }
+
+async function createRepository(values) {
+  const visibility = fields.repoVisibility.value;
+
+  if (values.provider === 'github') {
+    const headers = {
+      'Authorization': `Bearer ${values.githubToken}`,
+      'Accept': 'application/vnd.github+json',
+      'Content-Type': 'application/json',
+    };
+    const body = {
+      name: values.githubRepo,
+      private: visibility === 'private',
+      auto_init: true,
+    };
+
+    // Try org endpoint first, fall back to user endpoint
+    let resp = await fetch(`https://api.github.com/orgs/${values.githubOwner}/repos`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+    });
+
+    if (resp.status === 404) {
+      resp = await fetch('https://api.github.com/user/repos', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+      });
+    }
+
+    if (!resp.ok) {
+      if (resp.status === 401) throw new Error('Invalid access token (401 Unauthorized)');
+      if (resp.status === 422) throw new Error('Repository already exists or invalid name (422)');
+      const text = await resp.text();
+      throw new Error(`GitHub responded with ${resp.status}: ${text}`);
+    }
+
+    const repo = await resp.json();
+    const result = { url: repo.html_url, name: repo.full_name };
+
+    // Enable GitHub Pages if checked and repo is public
+    if (fields.githubPages.checked && visibility === 'public') {
+      const pagesResp = await fetch(
+        `https://api.github.com/repos/${values.githubOwner}/${values.githubRepo}/pages`,
+        {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            source: { branch: values.branch, path: '/' },
+          }),
+        }
+      );
+      if (pagesResp.ok) {
+        const pages = await pagesResp.json();
+        result.pagesUrl = pages.html_url;
+      }
+    }
+
+    return result;
+  }
+
+  // GitLab
+  let repoName = values.projectId;
+  const body = {
+    name: repoName.includes('/') ? repoName.split('/').pop() : repoName,
+    visibility,
+    initialize_with_readme: true,
+  };
+
+  // If projectId contains a namespace path, look up the namespace ID
+  if (repoName.includes('/')) {
+    const namespacePath = repoName.split('/').slice(0, -1).join('/');
+    const nsResp = await fetch(
+      `${values.gitlabUrl}/api/v4/namespaces?search=${encodeURIComponent(namespacePath)}`,
+      { headers: { 'PRIVATE-TOKEN': values.accessToken } }
+    );
+    if (nsResp.ok) {
+      const namespaces = await nsResp.json();
+      const ns = namespaces.find(n => n.full_path === namespacePath);
+      if (ns) body.namespace_id = ns.id;
+    }
+  }
+
+  const resp = await fetch(`${values.gitlabUrl}/api/v4/projects`, {
+    method: 'POST',
+    headers: {
+      'PRIVATE-TOKEN': values.accessToken,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!resp.ok) {
+    if (resp.status === 401) throw new Error('Invalid access token (401 Unauthorized)');
+    if (resp.status === 400) throw new Error('Repository already exists or invalid name (400)');
+    const text = await resp.text();
+    throw new Error(`GitLab responded with ${resp.status}: ${text}`);
+  }
+
+  const project = await resp.json();
+  return { url: project.web_url, name: project.name_with_namespace, id: project.id };
+}
+
+createRepoBtn.addEventListener('click', async () => {
+  const values = getFormValues();
+
+  if (values.provider === 'github') {
+    if (!values.githubToken || !values.githubOwner || !values.githubRepo) {
+      showStatus('Please fill in Token, Owner, and Repository name.', 'error');
+      return;
+    }
+  } else {
+    if (!values.gitlabUrl || !values.accessToken || !values.projectId) {
+      showStatus('Please fill in GitLab URL, Access Token, and Project ID/name.', 'error');
+      return;
+    }
+  }
+
+  createRepoBtn.disabled = true;
+  showStatus('Creating repository...', 'info');
+
+  try {
+    const result = await createRepository(values);
+
+    if (values.provider === 'gitlab') {
+      fields.projectId.value = result.id;
+    }
+
+    let msg = `Repository created: ${result.name} — ${result.url}`;
+    if (result.pagesUrl) {
+      msg += ` | Pages: ${result.pagesUrl}`;
+    }
+    showStatus(msg, 'success');
+  } catch (err) {
+    showStatus(`Failed to create repository: ${err.message}`, 'error');
+  } finally {
+    createRepoBtn.disabled = false;
+  }
+});
 
 testBtn.addEventListener('click', async () => {
   const values = getFormValues();

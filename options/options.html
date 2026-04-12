@@ -58,6 +58,14 @@
           <input type="text" id="github-repo" placeholder="mockups-repo">
           <span class="hint">Repository name (not the full URL)</span>
         </div>
+
+        <div class="field field-checkbox">
+          <label>
+            <input type="checkbox" id="github-pages">
+            Enable GitHub Pages
+          </label>
+          <span class="hint">Serve snapshots at <code>https://&lt;owner&gt;.github.io/&lt;repo&gt;/</code> (public repos only)</span>
+        </div>
       </div>
 
       <div class="field">
@@ -72,7 +80,23 @@
         <span class="hint">Directory in the repo where snapshots are stored</span>
       </div>
 
+      <div class="field">
+        <label for="repo-visibility">Repository Visibility</label>
+        <select id="repo-visibility">
+          <option value="private">Private</option>
+          <option value="public">Public</option>
+        </select>
+        <span class="hint">Used when creating a new repository</span>
+      </div>
+
+      <div class="field">
+        <label for="claude-api-key">Claude API Key</label>
+        <input type="password" id="claude-api-key" placeholder="sk-ant-...">
+        <span class="hint">Required for remix. Get one at console.anthropic.com</span>
+      </div>
+
       <div class="actions">
+        <button type="button" id="create-repo-btn" class="btn btn-secondary">Create Repository</button>
         <button type="button" id="test-btn" class="btn btn-secondary">Test Connection</button>
         <button type="submit" id="save-btn" class="btn btn-primary">Save Settings</button>
       </div>

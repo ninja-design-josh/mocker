@@ -2,9 +2,13 @@ import { commitSnapshot as gitlabCommit } from '../lib/gitlab-api.js';
 import { commitSnapshot as githubCommit } from '../lib/github-api.js';
 import { guessMimeType, arrayBufferToBase64 } from '../lib/utils.js';
 
+chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
+
 const STORAGE_KEY = 'mocker_settings';
 
 const SIZE_WARNING_BYTES = 10 * 1024 * 1024; // 10 MB
+
+let lastCapture = null;
 
 /**
  * Send progress updates to the popup.
@@ -377,7 +381,115 @@ async function captureSnapshot(tabId, snapshotName, branchName, sourceUrl) {
   const result = await commit(snapshotName, branchName, snapshot);
 
   sendProgress(100, 'Done!');
+
+  lastCapture = { html: snapshot, snapshotName, branchName };
+
   return result;
+}
+
+/**
+ * Replace all data URIs in HTML with numbered placeholders.
+ * Returns the stripped HTML and a map to restore them later.
+ */
+function stripDataUris(html) {
+  const dataUriMap = [];
+  const strippedHtml = html.replace(/data:[^"'\s)]+/g, (match) => {
+    const index = dataUriMap.length;
+    dataUriMap.push(match);
+    return `{{DATAURI_${index}}}`;
+  });
+  return { strippedHtml, dataUriMap };
+}
+
+/**
+ * Restore data URI placeholders back to their original values.
+ */
+function restoreDataUris(html, dataUriMap) {
+  return html.replace(/\{\{DATAURI_(\d+)\}\}/g, (match, index) => {
+    return dataUriMap[parseInt(index, 10)] || match;
+  });
+}
+
+/**
+ * Send remix progress updates to the popup.
+ */
+function sendRemixProgress(current, total, text) {
+  chrome.runtime.sendMessage({ action: 'remixProgress', current, total, text }).catch(() => {});
+}
+
+/**
+ * Call Claude API to generate a remix variation, then commit it.
+ */
+async function remixSnapshot(prompt, count) {
+  if (!lastCapture) {
+    throw new Error('No snapshot captured yet. Capture a snapshot first.');
+  }
+
+  const settingsResult = await chrome.storage.sync.get(STORAGE_KEY);
+  const settings = settingsResult[STORAGE_KEY];
+  const claudeApiKey = settings?.claudeApiKey;
+
+  if (!claudeApiKey) {
+    throw new Error('Claude API key not configured. Add it in Settings.');
+  }
+
+  const provider = settings.provider || 'gitlab';
+  const commit = provider === 'github' ? githubCommit : gitlabCommit;
+
+  const { strippedHtml, dataUriMap } = stripDataUris(lastCapture.html);
+  const results = [];
+
+  for (let i = 1; i <= count; i++) {
+    sendRemixProgress(i, count, `Generating variation ${i} of ${count}...`);
+
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': claudeApiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true',
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-5-20250929',
+        max_tokens: 64000,
+        system: 'You are an expert web developer. Modify this HTML page according to the user\'s instructions. Return ONLY the complete modified HTML — no explanation, no markdown fences. Preserve all {{DATAURI_N}} placeholders exactly as-is.',
+        messages: [
+          {
+            role: 'user',
+            content: `Here is the HTML page:\n\n${strippedHtml}\n\n---\n\nModify it as follows: ${prompt}`,
+          },
+        ],
+      }),
+    });
+
+    if (!resp.ok) {
+      const body = await resp.text();
+      throw new Error(`Claude API error (${resp.status}): ${body}`);
+    }
+
+    const data = await resp.json();
+    let remixHtml = data.content?.[0]?.text || '';
+
+    // Strip markdown fences if Claude wrapped the response
+    remixHtml = remixHtml.replace(/^```html?\n?/i, '').replace(/\n?```$/i, '');
+
+    const finalHtml = restoreDataUris(remixHtml, dataUriMap);
+    const fileName = `remix-${i}.html`;
+
+    sendRemixProgress(i, count, `Committing variation ${i} of ${count}...`);
+
+    const commitResult = await commit(
+      lastCapture.snapshotName,
+      lastCapture.branchName,
+      finalHtml,
+      fileName
+    );
+
+    results.push({ fileName, fileUrl: commitResult.fileUrl });
+  }
+
+  return results;
 }
 
 /**
@@ -388,6 +500,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     captureSnapshot(msg.tabId, msg.snapshotName, msg.branchName, msg.sourceUrl)
       .then(result => sendResponse(result))
       .catch(err => sendResponse({ error: err.message || 'Unknown error' }));
-    return true; // Indicates async response
+    return true;
+  }
+
+  if (msg.action === 'remixSnapshot') {
+    remixSnapshot(msg.prompt, msg.count)
+      .then(results => sendResponse({ results }))
+      .catch(err => sendResponse({ error: err.message }));
+    return true;
   }
 });
