@@ -14,7 +14,7 @@ const branchNameInput = document.getElementById('branch-name');
 const saveBtn = document.getElementById('save-btn');
 const progressFill = document.getElementById('progress-fill');
 const progressText = document.getElementById('progress-text');
-const resultPath = document.getElementById('result-path');
+const resultUrl = document.getElementById('result-url');
 const errorText = document.getElementById('error-text');
 
 function showSection(name) {
@@ -112,7 +112,8 @@ saveBtn.addEventListener('click', async () => {
     }
 
     document.getElementById('result-branch').textContent = response.branch;
-    resultPath.textContent = response.filePath;
+    resultUrl.href = response.fileUrl;
+    resultUrl.textContent = response.fileUrl;
     showSection('result');
   } catch (err) {
     errorText.textContent = err.message || 'Unknown error';
@@ -134,10 +135,10 @@ document.getElementById('open-options').addEventListener('click', () => {
 });
 
 document.getElementById('copy-path').addEventListener('click', () => {
-  navigator.clipboard.writeText(resultPath.textContent);
+  navigator.clipboard.writeText(resultUrl.textContent);
   document.getElementById('copy-path').textContent = 'Copied!';
   setTimeout(() => {
-    document.getElementById('copy-path').textContent = 'Copy Path';
+    document.getElementById('copy-path').textContent = 'Copy URL';
   }, 1500);
 });
 
