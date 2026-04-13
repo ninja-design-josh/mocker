@@ -25,6 +25,7 @@ const fields = {
   repoVisibility: document.getElementById('repo-visibility'),
   githubPages: document.getElementById('github-pages'),
   storageMode: storageModeSelect,
+  remixModel: document.getElementById('remix-model'),
   vercelUrl: document.getElementById('vercel-url'),
   vercelApiKey: document.getElementById('vercel-api-key'),
   alsoCommitToRepo: document.getElementById('also-commit-to-repo'),
@@ -71,6 +72,7 @@ function getFormValues() {
     branch: fields.branch.value.trim() || 'main',
     basePath: fields.basePath.value.trim() || 'snapshots',
     storageMode: fields.storageMode.value,
+    remixModel: fields.remixModel.value,
     vercelUrl: fields.vercelUrl.value.replace(/\/+$/, ''),
     vercelApiKey: fields.vercelApiKey.value.trim(),
     alsoCommitToRepo: fields.alsoCommitToRepo.checked,
@@ -109,6 +111,7 @@ async function loadSettings() {
   fields.branch.value = settings.branch || 'main';
   fields.basePath.value = settings.basePath || 'snapshots';
   fields.storageMode.value = settings.storageMode || 'vercel';
+  fields.remixModel.value = settings.remixModel || 'claude-sonnet-4-6';
   fields.vercelUrl.value = settings.vercelUrl || '';
   fields.vercelApiKey.value = settings.vercelApiKey || '';
   fields.alsoCommitToRepo.checked = !!settings.alsoCommitToRepo;

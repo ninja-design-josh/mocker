@@ -103,6 +103,15 @@
 
       <div id="vercel-fields">
         <div class="field">
+          <label for="remix-model">Model</label>
+          <select id="remix-model">
+            <option value="claude-sonnet-4-6">Sonnet 4.6 (fast, $3/$15 per MTok)</option>
+            <option value="claude-opus-4-6">Opus 4.6 (smartest, $5/$25 per MTok)</option>
+          </select>
+          <span class="hint">Claude model used by the agent to edit snapshots</span>
+        </div>
+
+        <div class="field">
           <label for="vercel-url">Backend URL</label>
           <input type="url" id="vercel-url" placeholder="https://mocker-remix.vercel.app">
           <span class="hint">Your deployed Vercel backend URL</span>

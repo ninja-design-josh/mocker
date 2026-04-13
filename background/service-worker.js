@@ -596,6 +596,7 @@ async function remixViaVercel(prompt, count, settings) {
     prompt,
     count,
     snapshotName,
+    model: settings.remixModel || 'claude-sonnet-4-6',
   };
 
   // Call remix endpoint — SSE stream

@@ -6,6 +6,7 @@ export interface RemixRequest {
   prompt: string;
   count: number;
   snapshotName: string;
+  model?: string;
 }
 
 export interface StoreRequest {

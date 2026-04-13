@@ -31,7 +31,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     res.setHeader('X-Accel-Buffering', 'no');
 
     const body = req.body as RemixRequest;
-    const { prompt, count, snapshotName } = body;
+    const { prompt, count, snapshotName, model } = body;
 
     if (!prompt || !count) {
       sendSSE(res, 'error', { message: 'Missing prompt or count' });
@@ -70,6 +70,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const modifiedHtml = await runRemixAgent({
           strippedHtml,
           prompt,
+          model: model || 'claude-sonnet-4-6',
           variationNumber: i,
           onProgress: (step) => {
             sendSSE(res, 'progress', { variation: i, total: count, step });

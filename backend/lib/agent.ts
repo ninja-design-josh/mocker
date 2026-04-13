@@ -23,6 +23,7 @@ for await (const message of query({
   options: {
     cwd: '/vercel/sandbox',
     systemPrompt: config.systemPrompt,
+    model: config.model,
     allowedTools: ['Read', 'Edit'],
     permissionMode: 'acceptEdits',
     maxTurns: 20,
@@ -50,10 +51,11 @@ for await (const message of query({
 export async function runRemixAgent(opts: {
   strippedHtml: string;
   prompt: string;
+  model: string;
   variationNumber: number;
   onProgress: (step: string) => void;
 }): Promise<string> {
-  const { strippedHtml, prompt, variationNumber, onProgress } = opts;
+  const { strippedHtml, prompt, model, variationNumber, onProgress } = opts;
 
   onProgress(`Creating sandbox for variation ${variationNumber}...`);
 
@@ -84,6 +86,7 @@ export async function runRemixAgent(opts: {
     const config = {
       prompt: `Read page.html, then modify it as follows: ${prompt}`,
       systemPrompt: SYSTEM_PROMPT,
+      model,
     };
 
     await sandbox.writeFiles([
