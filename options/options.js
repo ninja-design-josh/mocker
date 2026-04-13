@@ -8,9 +8,6 @@ const statusEl = document.getElementById('status');
 const providerSelect = document.getElementById('provider');
 const gitlabFields = document.getElementById('gitlab-fields');
 const githubFields = document.getElementById('github-fields');
-const storageModeSelect = document.getElementById('storage-mode');
-const vercelFields = document.getElementById('vercel-fields');
-const repoRemixFields = document.getElementById('repo-remix-fields');
 
 const fields = {
   provider: providerSelect,
@@ -24,12 +21,10 @@ const fields = {
   basePath: document.getElementById('base-path'),
   repoVisibility: document.getElementById('repo-visibility'),
   githubPages: document.getElementById('github-pages'),
-  storageMode: storageModeSelect,
   remixModel: document.getElementById('remix-model'),
   vercelUrl: document.getElementById('vercel-url'),
   vercelApiKey: document.getElementById('vercel-api-key'),
   alsoCommitToRepo: document.getElementById('also-commit-to-repo'),
-  claudeApiKey: document.getElementById('claude-api-key'),
 };
 
 function showStatus(message, type = 'info') {
@@ -49,16 +44,7 @@ function updateProviderFields() {
   hideStatus();
 }
 
-function updateStorageModeFields() {
-  const mode = storageModeSelect.value;
-  vercelFields.hidden = mode !== 'vercel';
-  repoRemixFields.hidden = mode !== 'repo';
-  testBackendBtn.hidden = mode !== 'vercel';
-  hideStatus();
-}
-
 providerSelect.addEventListener('change', updateProviderFields);
-storageModeSelect.addEventListener('change', updateStorageModeFields);
 
 function getFormValues() {
   return {
@@ -71,12 +57,10 @@ function getFormValues() {
     githubRepo: fields.githubRepo.value.trim(),
     branch: fields.branch.value.trim() || 'main',
     basePath: fields.basePath.value.trim() || 'snapshots',
-    storageMode: fields.storageMode.value,
     remixModel: fields.remixModel.value,
     vercelUrl: fields.vercelUrl.value.replace(/\/+$/, ''),
     vercelApiKey: fields.vercelApiKey.value.trim(),
     alsoCommitToRepo: fields.alsoCommitToRepo.checked,
-    claudeApiKey: fields.claudeApiKey.value.trim(),
   };
 }
 
@@ -96,10 +80,7 @@ function validateForProvider(values) {
 async function loadSettings() {
   const result = await chrome.storage.sync.get(STORAGE_KEY);
   const settings = result[STORAGE_KEY];
-  if (!settings) {
-    updateStorageModeFields();
-    return;
-  }
+  if (!settings) return;
 
   fields.provider.value = settings.provider || 'gitlab';
   fields.gitlabUrl.value = settings.gitlabUrl || '';
@@ -110,15 +91,12 @@ async function loadSettings() {
   fields.githubRepo.value = settings.githubRepo || '';
   fields.branch.value = settings.branch || 'main';
   fields.basePath.value = settings.basePath || 'snapshots';
-  fields.storageMode.value = settings.storageMode || 'vercel';
   fields.remixModel.value = settings.remixModel || 'claude-sonnet-4-6';
   fields.vercelUrl.value = settings.vercelUrl || '';
   fields.vercelApiKey.value = settings.vercelApiKey || '';
   fields.alsoCommitToRepo.checked = !!settings.alsoCommitToRepo;
-  fields.claudeApiKey.value = settings.claudeApiKey || '';
 
   updateProviderFields();
-  updateStorageModeFields();
 }
 
 async function saveSettings(values) {

@@ -86,7 +86,6 @@ branchToggleBtns.forEach(btn => {
   btn.addEventListener('click', () => setBranchMode(btn.dataset.mode));
 });
 
-let hasClaudeKey = false;
 let hasVercelBackend = false;
 
 /**
@@ -108,7 +107,6 @@ async function init() {
   const result = await chrome.storage.sync.get(STORAGE_KEY);
   const settings = result[STORAGE_KEY];
 
-  hasClaudeKey = !!(settings?.claudeApiKey);
   hasVercelBackend = !!(settings?.vercelUrl && settings?.vercelApiKey);
 
   if (!isConfigured(settings)) {
@@ -176,9 +174,7 @@ saveBtn.addEventListener('click', async () => {
       previewRow.hidden = true;
     }
     showSection('result');
-    const canRemix = hasClaudeKey || hasVercelBackend;
-    remixSection.hidden = !canRemix;
-    updateRemixIndicator();
+    remixSection.hidden = !hasVercelBackend;
     resetRemixState();
   } catch (err) {
     errorText.textContent = err.message || 'Unknown error';
@@ -218,20 +214,6 @@ copyPreviewBtn.addEventListener('click', () => {
   copyPreviewBtn.textContent = 'Copied!';
   setTimeout(() => { copyPreviewBtn.textContent = 'Copy link'; }, 1500);
 });
-
-function updateRemixIndicator() {
-  const el = document.getElementById('remix-backend-indicator');
-  if (!el) return;
-  if (hasVercelBackend) {
-    el.textContent = 'Using Vercel backend';
-    el.className = 'remix-indicator vercel';
-  } else if (hasClaudeKey) {
-    el.textContent = 'Using direct API';
-    el.className = 'remix-indicator direct';
-  } else {
-    el.textContent = '';
-  }
-}
 
 function resetRemixState() {
   remixPrompt.value = '';

@@ -93,51 +93,32 @@
       <h2 class="section-title">Remix Settings</h2>
 
       <div class="field">
-        <label for="storage-mode">Remix Backend</label>
-        <select id="storage-mode">
-          <option value="vercel">Vercel (recommended)</option>
-          <option value="repo">Direct API (browser)</option>
+        <label for="remix-model">Model</label>
+        <select id="remix-model">
+          <option value="claude-sonnet-4-6">Sonnet 4.6 (fast, $3/$15 per MTok)</option>
+          <option value="claude-opus-4-6">Opus 4.6 (smartest, $5/$25 per MTok)</option>
         </select>
-        <span class="hint">Vercel uses an Agent SDK backend for higher-quality remixes. Direct API calls Claude from the browser.</span>
+        <span class="hint">Claude model used by the agent to edit snapshots</span>
       </div>
 
-      <div id="vercel-fields">
-        <div class="field">
-          <label for="remix-model">Model</label>
-          <select id="remix-model">
-            <option value="claude-sonnet-4-6">Sonnet 4.6 (fast, $3/$15 per MTok)</option>
-            <option value="claude-opus-4-6">Opus 4.6 (smartest, $5/$25 per MTok)</option>
-          </select>
-          <span class="hint">Claude model used by the agent to edit snapshots</span>
-        </div>
-
-        <div class="field">
-          <label for="vercel-url">Backend URL</label>
-          <input type="url" id="vercel-url" placeholder="https://mocker-remix.vercel.app">
-          <span class="hint">Your deployed Vercel backend URL</span>
-        </div>
-
-        <div class="field">
-          <label for="vercel-api-key">Backend API Key</label>
-          <input type="password" id="vercel-api-key" placeholder="your-shared-secret">
-          <span class="hint">Must match <code>MOCKER_API_SECRET</code> on your Vercel deployment</span>
-        </div>
-
-        <div class="field field-checkbox">
-          <label>
-            <input type="checkbox" id="also-commit-to-repo">
-            Also commit remixes to repository
-          </label>
-          <span class="hint">Commits remix HTML to your Git repo in addition to Vercel Blob storage</span>
-        </div>
+      <div class="field">
+        <label for="vercel-url">Backend URL</label>
+        <input type="url" id="vercel-url" placeholder="https://mocker-remix.vercel.app">
+        <span class="hint">Your deployed Vercel backend URL</span>
       </div>
 
-      <div id="repo-remix-fields" hidden>
-        <div class="field">
-          <label for="claude-api-key">Claude API Key</label>
-          <input type="password" id="claude-api-key" placeholder="sk-ant-...">
-          <span class="hint">Required for direct browser remix. Get one at console.anthropic.com</span>
-        </div>
+      <div class="field">
+        <label for="vercel-api-key">Backend API Key</label>
+        <input type="password" id="vercel-api-key" placeholder="your-shared-secret">
+        <span class="hint">Must match <code>MOCKER_API_SECRET</code> on your Vercel deployment</span>
+      </div>
+
+      <div class="field field-checkbox">
+        <label>
+          <input type="checkbox" id="also-commit-to-repo">
+          Also commit remixes to repository
+        </label>
+        <span class="hint">Commits remix HTML to your Git repo in addition to Vercel Blob storage</span>
       </div>
 
       <div class="actions">

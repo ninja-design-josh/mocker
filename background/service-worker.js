@@ -772,78 +772,7 @@ async function remixViaVercel(prompt, count, settings) {
 }
 
 /**
- * Remix via direct Claude API call (browser-side, existing flow).
- */
-async function remixViaRepo(prompt, count, settings) {
-  const claudeApiKey = settings.claudeApiKey;
-
-  if (!claudeApiKey) {
-    throw new Error('Claude API key not configured. Add it in Settings.');
-  }
-
-  const provider = settings.provider || 'gitlab';
-  const commit = provider === 'github' ? githubCommit : gitlabCommit;
-
-  const { strippedHtml, dataUriMap } = stripDataUris(lastCapture.html);
-  const results = [];
-
-  for (let i = 1; i <= count; i++) {
-    sendRemixProgress(i, count, `Generating variation ${i} of ${count}...`);
-
-    const resp = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': claudeApiKey,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true',
-      },
-      body: JSON.stringify({
-        model: 'claude-opus-4-6',
-        max_tokens: 64000,
-        thinking: { type: 'adaptive' },
-        system: 'You are an expert web developer. You will receive a well-structured, indented HTML page.\nModify it according to the user\'s instructions. Return the COMPLETE modified HTML.\nRules:\n- Preserve the indentation and formatting style of the original\n- Preserve all {{DATAURI_N}} placeholders exactly as-is\n- No explanations, no markdown fences — only the HTML',
-        messages: [
-          {
-            role: 'user',
-            content: `Here is the HTML page:\n\n${strippedHtml}\n\n---\n\nModify it as follows: ${prompt}`,
-          },
-        ],
-      }),
-    });
-
-    if (!resp.ok) {
-      const body = await resp.text();
-      throw new Error(`Claude API error (${resp.status}): ${body}`);
-    }
-
-    const data = await resp.json();
-    let remixHtml = data.content?.find(b => b.type === 'text')?.text || '';
-
-    // Strip markdown fences if Claude wrapped the response
-    remixHtml = remixHtml.replace(/^```html?\n?/i, '').replace(/\n?```$/i, '');
-
-    const finalHtml = restoreDataUris(remixHtml, dataUriMap);
-    const fileName = `remix-${i}.html`;
-
-    sendRemixProgress(i, count, `Committing variation ${i} of ${count}...`);
-
-    const commitResult = await commit(
-      lastCapture.snapshotName,
-      lastCapture.branchName,
-      finalHtml,
-      fileName
-    );
-
-    results.push({ fileName, fileUrl: commitResult.fileUrl });
-  }
-
-  return results;
-}
-
-/**
- * Call Claude to generate remix variations.
- * Dispatches to Vercel backend or direct API based on storage mode.
+ * Call Claude to generate remix variations via Vercel backend.
  */
 async function remixSnapshot(prompt, count) {
   await loadLastCapture();
@@ -853,16 +782,11 @@ async function remixSnapshot(prompt, count) {
 
   const settingsResult = await chrome.storage.sync.get(STORAGE_KEY);
   const settings = settingsResult[STORAGE_KEY];
-  const storageMode = settings?.storageMode || 'vercel';
 
-  if (storageMode === 'vercel') {
-    if (!settings?.vercelUrl || !settings?.vercelApiKey) {
-      throw new Error('Vercel backend not configured. Add Backend URL and API Key in Settings.');
-    }
-    return remixViaVercel(prompt, count, settings);
+  if (!settings?.vercelUrl || !settings?.vercelApiKey) {
+    throw new Error('Vercel backend not configured. Add Backend URL and API Key in Settings.');
   }
-
-  return remixViaRepo(prompt, count, settings);
+  return remixViaVercel(prompt, count, settings);
 }
 
 /**
