@@ -23,6 +23,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             'application/font-woff', 'application/font-woff2',
             'application/vnd.ms-fontobject', 'application/octet-stream',
           ],
+          addRandomSuffix: true,
           maximumSizeInBytes: 100 * 1024 * 1024, // 100MB
         };
       },
