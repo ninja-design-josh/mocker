@@ -61,7 +61,7 @@ try {
         model: config.model,
         allowedTools: ['Read', 'Edit'],
         permissionMode: 'acceptEdits',
-        maxTurns: 20,
+        maxTurns: 50,
         maxBudgetUsd: 5.0,
         persistSession: false,
       }
