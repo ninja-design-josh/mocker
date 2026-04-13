@@ -53,6 +53,7 @@ try {
     writeFileSync('/vercel/sandbox/page.html', strippedHtml);
     const turns = [];
     let turnNum = 0;
+    let costUsd = 0;
     updateStatus({ phase: 'editing', variation: i, total: config.count, results });
 
     for await (const message of query({
@@ -63,8 +64,8 @@ try {
         model: config.model,
         allowedTools: ['Read', 'Edit'],
         permissionMode: 'acceptEdits',
-        maxTurns: 50,
-        maxBudgetUsd: 5.0,
+        maxTurns: 200,
+        maxBudgetUsd: 10.0,
         persistSession: false,
       }
     })) {
@@ -77,9 +78,19 @@ try {
         entry.text = text.length > 200 ? text.slice(0, 200) + '...' : text;
         const thinking = content.filter(b => b.type === 'thinking').map(b => b.thinking).join(' ');
         if (thinking) entry.thinking = thinking.length > 300 ? thinking.slice(0, 300) + '...' : thinking;
+        if (message.message.usage) {
+          const u = message.message.usage;
+          entry.inputTokens = u.input_tokens || 0;
+          entry.outputTokens = u.output_tokens || 0;
+        }
+      }
+      if (message.type === 'result') {
+        if (message.costUsd != null) costUsd = message.costUsd;
+        else if (message.cost_usd != null) costUsd = message.cost_usd;
+        entry.costUsd = costUsd;
       }
       turns.push(entry);
-      updateStatus({ phase: 'editing', variation: i, total: config.count, results, turn: turnNum, turns });
+      updateStatus({ phase: 'editing', variation: i, total: config.count, results, turn: turnNum, turns, costUsd });
 
       if (message.type === 'result' && message.subtype !== 'success') {
         const errors = 'errors' in message ? message.errors.join('; ') : '';
@@ -121,7 +132,8 @@ export interface RemixJobStatus {
   variation?: number;
   total?: number;
   turn?: number;
-  turns?: Array<{ turn: number; type: string; subtype: string | null; tools?: string[]; text?: string; thinking?: string }>;
+  costUsd?: number;
+  turns?: Array<{ turn: number; type: string; subtype: string | null; tools?: string[]; text?: string; thinking?: string; inputTokens?: number; outputTokens?: number; costUsd?: number }>;
   logUrl?: string;
   results?: Array<{ variationNumber: number; blobUrl: string; fileName: string }>;
   error?: string;

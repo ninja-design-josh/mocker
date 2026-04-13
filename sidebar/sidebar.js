@@ -313,7 +313,8 @@ remixBtn.addEventListener('click', async () => {
 // Listen for remix progress updates
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg.action === 'remixProgress') {
-    remixStatus.textContent = msg.text;
+    const costStr = msg.costUsd != null ? ` — $${msg.costUsd.toFixed(2)}` : '';
+    remixStatus.textContent = msg.text + costStr;
 
     // Render live turns feed
     if (msg.turns && msg.turns.length) {

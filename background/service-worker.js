@@ -744,6 +744,7 @@ async function remixViaVercel(prompt, count, settings) {
     sendRemixProgress(status.variation || 0, status.total || count, step, {
       turns: status.turns,
       logUrl: lastLogUrl,
+      costUsd: status.costUsd,
     });
 
     // Track partial results as they come in
