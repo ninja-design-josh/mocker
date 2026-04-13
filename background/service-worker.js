@@ -624,6 +624,7 @@ async function uploadToBlob(vercelUrl, vercelApiKey, pathname, blob) {
       headers: {
         'Authorization': `Bearer ${clientToken}`,
         'x-content-type': blob.type,
+        'x-add-random-suffix': '1',
         'x-cache-control-max-age': '31536000',
       },
       body: blob,

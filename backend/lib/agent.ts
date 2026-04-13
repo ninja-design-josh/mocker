@@ -79,6 +79,7 @@ try {
     const blob = await put('mocker/' + config.snapshotName + '/remix-' + i + '.html', final, {
       access: 'public',
       contentType: 'text/html',
+      addRandomSuffix: true,
       token: process.env.BLOB_READ_WRITE_TOKEN,
     });
 
