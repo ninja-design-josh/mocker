@@ -574,8 +574,7 @@ async function remixViaVercel(prompt, count, settings) {
   const { strippedHtml, dataUriMap } = stripDataUris(lastCapture.html);
   const snapshotName = lastCapture.snapshotName;
 
-  // Always upload stripped HTML and data URI map to Blob first
-  // (Vercel functions have a 4.5MB body limit)
+  // Upload stripped HTML and data URI map to Blob
   sendRemixProgress(0, count, 'Uploading snapshot to backend...');
 
   const snapshotBlobUrl = await uploadToBlob(
@@ -590,61 +589,86 @@ async function remixViaVercel(prompt, count, settings) {
     new Blob([JSON.stringify(dataUriMap)], { type: 'application/json' })
   );
 
-  const body = {
-    snapshotBlobId: snapshotBlobUrl,
-    dataUriMapBlobId: mapBlobUrl,
-    prompt,
-    count,
-    snapshotName,
-    model: settings.remixModel || 'claude-sonnet-4-6',
-  };
+  // Start remix job — returns immediately with a job ID
+  sendRemixProgress(0, count, 'Starting remix job...');
 
-  // Call remix endpoint — SSE stream
-  sendRemixProgress(0, count, 'Starting remix...');
-
-  const resp = await fetch(`${vercelUrl}/api/remix`, {
+  const startResp = await fetch(`${vercelUrl}/api/remix`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${vercelApiKey}`,
     },
-    body: JSON.stringify(body),
+    body: JSON.stringify({
+      snapshotBlobId: snapshotBlobUrl,
+      dataUriMapBlobId: mapBlobUrl,
+      prompt,
+      count,
+      snapshotName,
+      model: settings.remixModel || 'claude-sonnet-4-6',
+    }),
   });
 
-  if (!resp.ok) {
-    const text = await resp.text();
-    throw new Error(`Remix backend error (${resp.status}): ${text}`);
+  if (!startResp.ok) {
+    const text = await startResp.text();
+    throw new Error(`Failed to start remix: ${startResp.status} ${text}`);
   }
 
-  // Parse SSE stream using ReadableStream (EventSource not available in service workers)
-  const reader = resp.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
+  const { jobId } = await startResp.json();
+
+  // Poll for status — sandbox runs independently, no serverless function timeout
   const results = [];
+  const maxPollMs = 20 * 60 * 1000;
+  const pollStart = Date.now();
 
   while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
+    await new Promise(r => setTimeout(r, 3000));
 
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split('\n');
-    buffer = lines.pop() || '';
+    if (Date.now() - pollStart > maxPollMs) {
+      throw new Error('Remix timed out after 20 minutes');
+    }
 
-    let currentEvent = '';
-    for (const line of lines) {
-      if (line.startsWith('event: ')) {
-        currentEvent = line.slice(7).trim();
-      } else if (line.startsWith('data: ') && currentEvent) {
-        const data = JSON.parse(line.slice(6));
+    const statusResp = await fetch(
+      `${vercelUrl}/api/remix-status?jobId=${encodeURIComponent(jobId)}`,
+      { headers: { 'Authorization': `Bearer ${vercelApiKey}` } }
+    );
 
-        if (currentEvent === 'progress') {
-          sendRemixProgress(data.variation || 0, data.total || count, data.step || '');
-        } else if (currentEvent === 'variation-complete') {
-          results.push({ fileName: data.fileName, fileUrl: data.blobUrl });
-        } else if (currentEvent === 'error') {
-          throw new Error(data.message || 'Remix failed on backend');
+    if (!statusResp.ok) {
+      const text = await statusResp.text();
+      throw new Error(`Status check failed: ${statusResp.status} ${text}`);
+    }
+
+    const status = await statusResp.json();
+
+    if (status.phase === 'done') {
+      for (const r of (status.results || [])) {
+        if (!results.find(x => x.fileName === r.fileName)) {
+          results.push({ fileName: r.fileName, fileUrl: r.blobUrl });
         }
-        currentEvent = '';
+      }
+      break;
+    }
+
+    if (status.phase === 'error') {
+      throw new Error(status.error || 'Remix failed');
+    }
+
+    // Map phase to progress message
+    const step = status.phase === 'downloading' ? 'Downloading snapshot...'
+      : status.phase === 'installing' ? 'Installing tools in sandbox...'
+      : status.phase === 'editing' ? `Agent editing variation ${status.variation} of ${status.total}...`
+      : status.phase === 'uploading' ? `Uploading variation ${status.variation}...`
+      : status.phase === 'variation-complete' ? `Variation ${status.variation} complete`
+      : status.phase === 'starting' ? 'Starting sandbox...'
+      : 'Working...';
+
+    sendRemixProgress(status.variation || 0, status.total || count, step);
+
+    // Track partial results as they come in
+    if (status.results) {
+      for (const r of status.results) {
+        if (!results.find(x => x.fileName === r.fileName)) {
+          results.push({ fileName: r.fileName, fileUrl: r.blobUrl });
+        }
       }
     }
   }

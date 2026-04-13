@@ -1,7 +1,10 @@
 {
   "functions": {
     "api/remix.ts": {
-      "maxDuration": 300
+      "maxDuration": 60
+    },
+    "api/remix-status.ts": {
+      "maxDuration": 60
     }
   }
 }

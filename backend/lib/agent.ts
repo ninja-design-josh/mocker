@@ -11,110 +11,169 @@ Rules:
 - Only change what the user's instructions ask for
 - When done, do not output anything — your edits to the file are the result`;
 
-// This script runs inside the sandbox microVM
-const RUNNER_SCRIPT = `
-import { readFileSync } from 'node:fs';
-import { query } from '@anthropic-ai/claude-agent-sdk';
+// This script runs inside the sandbox microVM — fully self-contained.
+// It downloads source files from Blob, installs the Agent SDK, runs the agent
+// for each variation, restores data URIs, and uploads results to Blob.
+// Status is written to /vercel/sandbox/status.json for polling.
+const WORKER_SCRIPT = `
+import { execSync } from 'node:child_process';
+import { writeFileSync, readFileSync } from 'node:fs';
 
-const config = JSON.parse(readFileSync('/vercel/sandbox/agent-config.json', 'utf-8'));
+const config = JSON.parse(readFileSync('/vercel/sandbox/worker-config.json', 'utf-8'));
 
-for await (const message of query({
-  prompt: config.prompt,
-  options: {
+function updateStatus(status) {
+  writeFileSync('/vercel/sandbox/status.json', JSON.stringify(Object.assign({ updatedAt: Date.now() }, status)));
+}
+
+function restoreDataUris(html, dataUriMap) {
+  return html.replace(/\\{\\{DATAURI_(\\d+)\\}\\}/g, function(match, i) {
+    return dataUriMap[parseInt(i)] || match;
+  });
+}
+
+try {
+  updateStatus({ phase: 'downloading' });
+  const htmlResp = await fetch(config.snapshotBlobUrl);
+  const strippedHtml = await htmlResp.text();
+  const mapResp = await fetch(config.dataUriMapBlobUrl);
+  const dataUriMap = await mapResp.json();
+
+  updateStatus({ phase: 'installing' });
+  execSync('npm install @anthropic-ai/claude-agent-sdk @vercel/blob', {
     cwd: '/vercel/sandbox',
-    systemPrompt: config.systemPrompt,
-    model: config.model,
-    allowedTools: ['Read', 'Edit'],
-    permissionMode: 'acceptEdits',
-    maxTurns: 20,
-    maxBudgetUsd: 2.0,
-    persistSession: false,
-  }
-})) {
-  if (message.type === 'assistant' && message.message?.content) {
-    for (const block of message.message.content) {
-      if ('name' in block) {
-        process.stdout.write(JSON.stringify({ type: 'tool', name: block.name }) + '\\n');
+    stdio: 'pipe',
+  });
+
+  const { query } = await import('@anthropic-ai/claude-agent-sdk');
+  const { put } = await import('@vercel/blob');
+
+  const results = [];
+
+  for (let i = 1; i <= config.count; i++) {
+    writeFileSync('/vercel/sandbox/page.html', strippedHtml);
+    updateStatus({ phase: 'editing', variation: i, total: config.count, results });
+
+    for await (const message of query({
+      prompt: 'Read page.html, then modify it as follows: ' + config.prompt,
+      options: {
+        cwd: '/vercel/sandbox',
+        systemPrompt: config.systemPrompt,
+        model: config.model,
+        allowedTools: ['Read', 'Edit'],
+        permissionMode: 'acceptEdits',
+        maxTurns: 20,
+        maxBudgetUsd: 2.0,
+        persistSession: false,
+      }
+    })) {
+      if (message.type === 'result' && message.subtype !== 'success') {
+        const errors = 'errors' in message ? message.errors.join('; ') : '';
+        throw new Error('Agent failed: ' + message.subtype + (errors ? ' - ' + errors : ''));
       }
     }
+
+    updateStatus({ phase: 'uploading', variation: i, total: config.count, results });
+    const modified = readFileSync('/vercel/sandbox/page.html', 'utf-8');
+    const final = restoreDataUris(modified, dataUriMap);
+
+    const blob = await put('mocker/' + config.snapshotName + '/remix-' + i + '.html', final, {
+      access: 'public',
+      contentType: 'text/html',
+      token: process.env.BLOB_READ_WRITE_TOKEN,
+    });
+
+    results.push({ variationNumber: i, blobUrl: blob.url, fileName: 'remix-' + i + '.html' });
+    updateStatus({ phase: 'variation-complete', variation: i, total: config.count, results });
   }
-  if (message.type === 'result') {
-    if (message.subtype !== 'success') {
-      const errors = 'errors' in message ? message.errors.join('; ') : '';
-      console.error('Agent failed: ' + message.subtype + (errors ? ' \\u2014 ' + errors : ''));
-      process.exit(1);
-    }
-  }
+
+  updateStatus({ phase: 'done', results });
+} catch (err) {
+  updateStatus({ phase: 'error', error: err.message || String(err) });
 }
 `;
 
-export async function runRemixAgent(opts: {
-  strippedHtml: string;
+export interface RemixJobStatus {
+  phase: string;
+  variation?: number;
+  total?: number;
+  results?: Array<{ variationNumber: number; blobUrl: string; fileName: string }>;
+  error?: string;
+  updatedAt?: number;
+  sandboxStatus?: string;
+}
+
+export async function startRemixJob(opts: {
+  snapshotBlobUrl: string;
+  dataUriMapBlobUrl: string;
   prompt: string;
   model: string;
-  variationNumber: number;
-  onProgress: (step: string) => void;
+  count: number;
+  snapshotName: string;
 }): Promise<string> {
-  const { strippedHtml, prompt, model, variationNumber, onProgress } = opts;
-
-  onProgress(`Creating sandbox for variation ${variationNumber}...`);
-
   const sandbox = await Sandbox.create({
     runtime: 'node22',
     resources: { vcpus: 2 },
-    timeout: 240_000,
+    timeout: 1_200_000,
     env: {
       ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY || '',
+      BLOB_READ_WRITE_TOKEN: process.env.BLOB_READ_WRITE_TOKEN || '',
     },
   });
 
+  const config = {
+    snapshotBlobUrl: opts.snapshotBlobUrl,
+    dataUriMapBlobUrl: opts.dataUriMapBlobUrl,
+    prompt: opts.prompt,
+    systemPrompt: SYSTEM_PROMPT,
+    model: opts.model,
+    count: opts.count,
+    snapshotName: opts.snapshotName,
+  };
+
+  await sandbox.writeFiles([
+    { path: 'worker-config.json', content: Buffer.from(JSON.stringify(config)) },
+    { path: 'worker.mjs', content: Buffer.from(WORKER_SCRIPT) },
+    { path: 'status.json', content: Buffer.from(JSON.stringify({ phase: 'starting', updatedAt: Date.now() })) },
+  ]);
+
+  await sandbox.runCommand({
+    cmd: 'node',
+    args: ['worker.mjs'],
+    cwd: '/vercel/sandbox',
+    detached: true,
+  });
+
+  return sandbox.sandboxId;
+}
+
+export async function getRemixJobStatus(sandboxId: string): Promise<RemixJobStatus> {
+  const sandbox = await Sandbox.get({ sandboxId });
+
+  if (sandbox.status !== 'running') {
+    // Sandbox stopped — try to read final status before filesystem is gone
+    try {
+      const buffer = await sandbox.readFileToBuffer({ path: 'status.json' });
+      if (buffer) {
+        return { ...JSON.parse(buffer.toString('utf-8')), sandboxStatus: sandbox.status };
+      }
+    } catch {}
+    return { phase: 'error', error: `Sandbox ${sandbox.status}`, sandboxStatus: sandbox.status };
+  }
+
   try {
-    onProgress(`Installing Agent SDK in sandbox...`);
+    const buffer = await sandbox.readFileToBuffer({ path: 'status.json' });
+    if (!buffer) {
+      return { phase: 'starting', sandboxStatus: 'running' };
+    }
+    const status = JSON.parse(buffer.toString('utf-8'));
 
-    const install = await sandbox.runCommand({
-      cmd: 'npm',
-      args: ['install', '@anthropic-ai/claude-agent-sdk'],
-    });
-
-    if (install.exitCode !== 0) {
-      const stderr = await install.stderr();
-      throw new Error(`Failed to install Agent SDK: ${stderr}`);
+    // Stop sandbox once work is complete
+    if (status.phase === 'done' || status.phase === 'error') {
+      sandbox.stop().catch(() => {});
     }
 
-    onProgress(`Preparing files for variation ${variationNumber}...`);
-
-    const config = {
-      prompt: `Read page.html, then modify it as follows: ${prompt}`,
-      systemPrompt: SYSTEM_PROMPT,
-      model,
-    };
-
-    await sandbox.writeFiles([
-      { path: 'page.html', content: Buffer.from(strippedHtml) },
-      { path: 'agent-config.json', content: Buffer.from(JSON.stringify(config)) },
-      { path: 'run-agent.mjs', content: Buffer.from(RUNNER_SCRIPT) },
-    ]);
-
-    onProgress(`Agent editing variation ${variationNumber}...`);
-
-    const result = await sandbox.runCommand({
-      cmd: 'node',
-      args: ['run-agent.mjs'],
-      cwd: '/vercel/sandbox',
-    });
-
-    if (result.exitCode !== 0) {
-      const stderr = await result.stderr();
-      const stdout = await result.stdout();
-      throw new Error(`Agent failed (exit ${result.exitCode}): ${stderr || stdout}`);
-    }
-
-    onProgress(`Reading result for variation ${variationNumber}...`);
-    const buffer = await sandbox.readFileToBuffer({ path: 'page.html' });
-    if (!buffer) throw new Error('Modified page.html not found in sandbox');
-    return buffer.toString('utf-8');
-
-  } finally {
-    await sandbox.stop().catch(() => {});
+    return { ...status, sandboxStatus: 'running' };
+  } catch (err) {
+    return { phase: 'error', error: err instanceof Error ? err.message : 'Failed to read status' };
   }
 }
