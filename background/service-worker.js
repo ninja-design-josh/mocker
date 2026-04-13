@@ -90,6 +90,26 @@ async function fetchAsDataUri(url) {
 }
 
 /**
+ * Fetch a resource and upload it to Vercel Blob, returning the public URL.
+ * Returns null if the fetch or upload fails (graceful degradation).
+ */
+async function fetchAndUploadResource(url, vercelUrl, vercelApiKey) {
+  try {
+    const resp = await fetch(url, { credentials: 'omit' });
+    if (!resp.ok) return null;
+    const contentType = resp.headers.get('content-type') || guessMimeType(url);
+    const mime = contentType.split(';')[0].trim();
+    const buffer = await resp.arrayBuffer();
+    const urlPath = new URL(url).pathname.split('/').pop() || 'resource';
+    const pathname = `mocker/assets/${urlPath}`;
+    const blob = new Blob([buffer], { type: mime });
+    return await uploadToBlob(vercelUrl, vercelApiKey, pathname, blob);
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Fetch a CSS file as text. Resolves @import directives recursively.
  */
 async function fetchCss(url, visited = new Set()) {
@@ -232,7 +252,14 @@ async function captureSnapshot(tabId, snapshotName, branchName, sourceUrl) {
     }
   }
 
-  // Step 4: Fetch all resources as data URIs
+  // Read settings early so we can use Vercel Blob for resource uploads
+  const settingsResult = await chrome.storage.sync.get(STORAGE_KEY);
+  const settings = settingsResult[STORAGE_KEY] || {};
+  const vercelUrl = settings.vercelUrl;
+  const vercelApiKey = settings.vercelApiKey;
+  const useBlob = !!(vercelUrl && vercelApiKey);
+
+  // Step 4: Fetch all resources (upload to Blob when available, else data URIs)
   const total = allResourceUrls.size;
   let fetched = 0;
   const resourceMap = new Map();
@@ -243,7 +270,11 @@ async function captureSnapshot(tabId, snapshotName, branchName, sourceUrl) {
 
   for (let i = 0; i < urlArray.length; i += batchSize) {
     const batch = urlArray.slice(i, i + batchSize);
-    const batchResults = await Promise.all(batch.map(url => fetchAsDataUri(url)));
+    const batchResults = await Promise.all(batch.map(url =>
+      useBlob
+        ? fetchAndUploadResource(url, vercelUrl, vercelApiKey)
+        : fetchAsDataUri(url)
+    ));
 
     for (let j = 0; j < batch.length; j++) {
       if (batchResults[j]) {
@@ -328,6 +359,17 @@ async function captureSnapshot(tabId, snapshotName, branchName, sourceUrl) {
 
       // Remove CSP meta tags
       doc.querySelectorAll('meta[http-equiv="Content-Security-Policy"]').forEach(el => el.remove());
+
+      // Fix protocol-relative URLs (//example.com → https://example.com)
+      // These break when opened as file:// since they resolve to file://example.com
+      for (const el of doc.querySelectorAll('[src], [href]')) {
+        for (const attr of ['src', 'href']) {
+          const val = el.getAttribute(attr);
+          if (val && val.startsWith('//') && !val.startsWith('///')) {
+            el.setAttribute(attr, 'https:' + val);
+          }
+        }
+      }
 
       // Replace external stylesheets with inlined <style> tags
       for (const link of doc.querySelectorAll('link[rel="stylesheet"]')) {
@@ -486,14 +528,27 @@ async function captureSnapshot(tabId, snapshotName, branchName, sourceUrl) {
   }
 
   // Step 8: Commit to provider
-  const settingsResult = await chrome.storage.sync.get(STORAGE_KEY);
-  const provider = settingsResult[STORAGE_KEY]?.provider || 'gitlab';
+  const provider = settings.provider || 'gitlab';
   const providerName = provider === 'github' ? 'GitHub' : 'GitLab';
   const commit = provider === 'github' ? githubCommit : gitlabCommit;
 
   sendProgress(90, `Saving to ${providerName}...`);
 
   const result = await commit(snapshotName, branchName, snapshot);
+
+  // Upload to Vercel Blob for a shareable preview URL
+  if (useBlob) {
+    try {
+      const previewUrl = await uploadToBlob(
+        vercelUrl, vercelApiKey,
+        `mocker/${snapshotName}/snapshot.html`,
+        new Blob([snapshot], { type: 'text/html' })
+      );
+      result.previewUrl = previewUrl;
+    } catch {
+      // Non-fatal — repo commit already succeeded
+    }
+  }
 
   sendProgress(100, 'Done!');
 

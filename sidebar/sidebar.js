@@ -20,6 +20,9 @@ const progressFill = document.getElementById('progress-fill');
 const progressText = document.getElementById('progress-text');
 const resultUrl = document.getElementById('result-url');
 const errorText = document.getElementById('error-text');
+const previewRow = document.getElementById('preview-row');
+const previewUrl = document.getElementById('preview-url');
+const copyPreviewBtn = document.getElementById('copy-preview');
 const remixSection = document.getElementById('remix-section');
 const remixPrompt = document.getElementById('remix-prompt');
 const remixCount = document.getElementById('remix-count');
@@ -165,6 +168,13 @@ saveBtn.addEventListener('click', async () => {
     document.getElementById('result-branch').textContent = response.branch;
     resultUrl.href = response.fileUrl;
     resultUrl.textContent = response.fileUrl;
+    if (response.previewUrl) {
+      previewUrl.href = response.previewUrl;
+      previewUrl.textContent = 'Open preview';
+      previewRow.hidden = false;
+    } else {
+      previewRow.hidden = true;
+    }
     showSection('result');
     const canRemix = hasClaudeKey || hasVercelBackend;
     remixSection.hidden = !canRemix;
@@ -201,6 +211,12 @@ document.getElementById('copy-path').addEventListener('click', () => {
   setTimeout(() => {
     document.getElementById('copy-path').textContent = 'Copy URL';
   }, 1500);
+});
+
+copyPreviewBtn.addEventListener('click', () => {
+  navigator.clipboard.writeText(previewUrl.href);
+  copyPreviewBtn.textContent = 'Copied!';
+  setTimeout(() => { copyPreviewBtn.textContent = 'Copy link'; }, 1500);
 });
 
 function updateRemixIndicator() {
@@ -270,11 +286,28 @@ remixBtn.addEventListener('click', async () => {
     remixStatus.textContent = 'Done!';
     remixResults.hidden = false;
     for (const r of response.results) {
+      const row = document.createElement('div');
+      row.className = 'remix-result-row';
+
       const a = document.createElement('a');
       a.href = r.fileUrl;
       a.target = '_blank';
-      a.textContent = `${r.fileName} → ${r.fileUrl}`;
-      remixResults.appendChild(a);
+      a.textContent = r.fileName;
+      a.title = r.fileUrl;
+
+      const copyBtn = document.createElement('button');
+      copyBtn.className = 'btn-copy';
+      copyBtn.textContent = 'Copy link';
+      copyBtn.addEventListener('click', () => {
+        navigator.clipboard.writeText(r.fileUrl).then(() => {
+          copyBtn.textContent = 'Copied!';
+          setTimeout(() => { copyBtn.textContent = 'Copy link'; }, 1500);
+        });
+      });
+
+      row.appendChild(a);
+      row.appendChild(copyBtn);
+      remixResults.appendChild(row);
     }
   } catch (err) {
     remixStatus.className = 'remix-status error';

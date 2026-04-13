@@ -70,7 +70,12 @@
           <div class="result-success">
             <div class="result-label">Branch</div>
             <div class="result-branch" id="result-branch"></div>
-            <div class="result-label">URL</div>
+            <div id="preview-row" class="result-row" hidden>
+              <div class="result-label">Preview</div>
+              <a id="preview-url" class="result-url" target="_blank"></a>
+              <button id="copy-preview" class="btn btn-secondary btn-sm">Copy link</button>
+            </div>
+            <div class="result-label">Repo</div>
             <a id="result-url" class="result-url" target="_blank"></a>
             <button id="copy-path" class="btn btn-secondary btn-sm">Copy URL</button>
           </div>

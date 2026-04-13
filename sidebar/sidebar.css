@@ -371,6 +371,10 @@ input:focus {
   text-decoration: underline;
 }
 
+.result-row {
+  margin-bottom: 10px;
+}
+
 /* Remix */
 textarea {
   width: 100%;
@@ -427,15 +431,21 @@ textarea:focus {
   margin-top: 10px;
 }
 
-#remix-results a {
-  display: block;
-  font-size: 13px;
-  font-weight: 500;
+.remix-result-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   padding: 8px 10px;
   background: var(--color-success-bg);
   border: 1px solid var(--color-success-border);
   border-radius: var(--radius);
   margin-bottom: 6px;
+}
+
+.remix-result-row a {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 500;
   color: var(--color-success);
   text-decoration: none;
   white-space: nowrap;
@@ -443,8 +453,24 @@ textarea:focus {
   text-overflow: ellipsis;
 }
 
-#remix-results a:hover {
+.remix-result-row a:hover {
   text-decoration: underline;
+}
+
+.remix-result-row .btn-copy {
+  flex-shrink: 0;
+  font-size: 11px;
+  padding: 2px 8px;
+  border: 1px solid var(--color-success-border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--color-success);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.remix-result-row .btn-copy:hover {
+  background: var(--color-success-border);
 }
 
 /* Remix backend indicator */

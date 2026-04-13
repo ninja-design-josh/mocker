@@ -17,7 +17,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       request: req as unknown as Request,
       onBeforeGenerateToken: async () => {
         return {
-          allowedContentTypes: ['text/html', 'application/json', 'text/plain'],
+          allowedContentTypes: [
+            'text/html', 'application/json', 'text/plain',
+            'image/*', 'font/*',
+            'application/font-woff', 'application/font-woff2',
+            'application/vnd.ms-fontobject', 'application/octet-stream',
+          ],
           maximumSizeInBytes: 100 * 1024 * 1024, // 100MB
         };
       },
