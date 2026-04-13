@@ -427,6 +427,61 @@ textarea:focus {
   color: var(--color-error);
 }
 
+.remix-turns {
+  margin-top: 10px;
+  max-height: 200px;
+  overflow-y: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 6px 8px;
+  font-size: 11px;
+  background: var(--color-bg-secondary, #f8f9fa);
+}
+
+.turn-entry {
+  padding: 4px 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.turn-entry:last-child {
+  border-bottom: none;
+}
+
+.turn-label {
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.turn-thinking {
+  color: #7c3aed;
+  font-style: italic;
+  margin-top: 2px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.turn-text {
+  color: var(--color-text);
+  margin-top: 2px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.remix-log-link {
+  display: block;
+  font-size: 11px;
+  color: var(--color-text-secondary);
+  text-decoration: underline;
+  margin-top: 6px;
+}
+
+.remix-log-link:hover {
+  color: var(--color-text);
+}
+
 #remix-results {
   margin-top: 10px;
 }

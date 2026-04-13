@@ -28,6 +28,7 @@ const remixPrompt = document.getElementById('remix-prompt');
 const remixCount = document.getElementById('remix-count');
 const remixBtn = document.getElementById('remix-btn');
 const remixStatus = document.getElementById('remix-status');
+const remixTurns = document.getElementById('remix-turns');
 const remixResults = document.getElementById('remix-results');
 
 function showSection(name) {
@@ -221,6 +222,8 @@ function resetRemixState() {
   remixStatus.hidden = true;
   remixStatus.textContent = '';
   remixStatus.className = 'remix-status';
+  remixTurns.hidden = true;
+  remixTurns.innerHTML = '';
   remixResults.hidden = true;
   remixResults.innerHTML = '';
 }
@@ -291,6 +294,14 @@ remixBtn.addEventListener('click', async () => {
       row.appendChild(copyBtn);
       remixResults.appendChild(row);
     }
+    if (response.logUrl) {
+      const logRow = document.createElement('a');
+      logRow.href = response.logUrl;
+      logRow.target = '_blank';
+      logRow.className = 'remix-log-link';
+      logRow.textContent = 'View agent log';
+      remixResults.appendChild(logRow);
+    }
   } catch (err) {
     remixStatus.className = 'remix-status error';
     remixStatus.textContent = err.message || 'Remix failed';
@@ -303,6 +314,36 @@ remixBtn.addEventListener('click', async () => {
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg.action === 'remixProgress') {
     remixStatus.textContent = msg.text;
+
+    // Render live turns feed
+    if (msg.turns && msg.turns.length) {
+      remixTurns.hidden = false;
+      remixTurns.innerHTML = '';
+      for (const t of msg.turns) {
+        if (t.type !== 'assistant') continue;
+        const el = document.createElement('div');
+        el.className = 'turn-entry';
+        const label = document.createElement('span');
+        label.className = 'turn-label';
+        const tools = (t.tools || []).join(', ');
+        label.textContent = `Turn ${t.turn}` + (tools ? ` [${tools}]` : '');
+        el.appendChild(label);
+        if (t.thinking) {
+          const think = document.createElement('div');
+          think.className = 'turn-thinking';
+          think.textContent = t.thinking;
+          el.appendChild(think);
+        }
+        if (t.text) {
+          const text = document.createElement('div');
+          text.className = 'turn-text';
+          text.textContent = t.text;
+          el.appendChild(text);
+        }
+        remixTurns.appendChild(el);
+      }
+      remixTurns.scrollTop = remixTurns.scrollHeight;
+    }
   }
 });
 

@@ -75,6 +75,8 @@ try {
         entry.tools = content.filter(b => b.type === 'tool_use').map(b => b.name);
         const text = content.filter(b => b.type === 'text').map(b => b.text).join(' ');
         entry.text = text.length > 200 ? text.slice(0, 200) + '...' : text;
+        const thinking = content.filter(b => b.type === 'thinking').map(b => b.thinking).join(' ');
+        if (thinking) entry.thinking = thinking.length > 300 ? thinking.slice(0, 300) + '...' : thinking;
       }
       turns.push(entry);
       updateStatus({ phase: 'editing', variation: i, total: config.count, results, turn: turnNum, turns });
@@ -119,7 +121,7 @@ export interface RemixJobStatus {
   variation?: number;
   total?: number;
   turn?: number;
-  turns?: Array<{ turn: number; type: string; subtype: string | null; tools?: string[]; text?: string }>;
+  turns?: Array<{ turn: number; type: string; subtype: string | null; tools?: string[]; text?: string; thinking?: string }>;
   logUrl?: string;
   results?: Array<{ variationNumber: number; blobUrl: string; fileName: string }>;
   error?: string;

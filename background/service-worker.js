@@ -583,8 +583,8 @@ function restoreDataUris(html, dataUriMap) {
 /**
  * Send remix progress updates to the popup.
  */
-function sendRemixProgress(current, total, text) {
-  chrome.runtime.sendMessage({ action: 'remixProgress', current, total, text }).catch(() => {});
+function sendRemixProgress(current, total, text, extra = {}) {
+  chrome.runtime.sendMessage({ action: 'remixProgress', current, total, text, ...extra }).catch(() => {});
 }
 
 /**
@@ -695,6 +695,7 @@ async function remixViaVercel(prompt, count, settings) {
 
   // Poll for status — sandbox runs independently, no serverless function timeout
   const results = [];
+  let lastLogUrl = null;
   const maxPollMs = 20 * 60 * 1000;
   const pollStart = Date.now();
 
@@ -739,7 +740,11 @@ async function remixViaVercel(prompt, count, settings) {
       : status.phase === 'starting' ? 'Starting sandbox...'
       : 'Working...';
 
-    sendRemixProgress(status.variation || 0, status.total || count, step);
+    if (status.logUrl) lastLogUrl = status.logUrl;
+    sendRemixProgress(status.variation || 0, status.total || count, step, {
+      turns: status.turns,
+      logUrl: lastLogUrl,
+    });
 
     // Track partial results as they come in
     if (status.results) {
@@ -768,7 +773,7 @@ async function remixViaVercel(prompt, count, settings) {
     }
   }
 
-  return results;
+  return { results, logUrl: lastLogUrl };
 }
 
 /**
@@ -802,7 +807,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   if (msg.action === 'remixSnapshot') {
     remixSnapshot(msg.prompt, msg.count)
-      .then(results => sendResponse({ results }))
+      .then(data => sendResponse({ results: data.results, logUrl: data.logUrl }))
       .catch(err => sendResponse({ error: err.message }));
     return true;
   }
