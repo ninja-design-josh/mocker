@@ -12,7 +12,14 @@ Efficiency rules — these are critical for keeping costs down:
 - Preserve all {{DATAURI_N}} placeholders exactly as-is — these are image/font references
 - Preserve the indentation and formatting style of the original
 - Only change what the user's instructions ask for
-- When done, do not output anything — your edits to the file are the result`;
+- When done, do not output anything — your edits to the file are the result
+
+Snapshot rules — the file is a static HTML snapshot:
+- All <script> tags have already been removed — do NOT add any back
+- Do NOT add external resource references (CDN links, analytics, tracking scripts)
+- Do NOT add <link rel="preconnect">, <link rel="dns-prefetch">, or tracking pixels
+- Keep the file self-contained — prefer inline styles over external stylesheet links
+- If restructuring, remove any leftover empty containers or dead markup`;
 
 // This script runs inside the sandbox microVM — fully self-contained.
 // It downloads source files from Blob, installs the Agent SDK, runs the agent

@@ -337,17 +337,29 @@ async function captureSnapshot(tabId, snapshotName, branchName, sourceUrl) {
       const parser = new DOMParser();
       const doc = parser.parseFromString(html, 'text/html');
 
-      // Remove scripts, but keep cross-origin <script src="..."> tags
-      doc.querySelectorAll('script').forEach(el => {
-        const src = el.getAttribute('src');
-        if (src) {
-          try {
-            const abs = new URL(src, sourceUrl).href;
-            if (new URL(abs).origin !== new URL(sourceUrl).origin) return;
-          } catch {}
+      // Remove ALL scripts — snapshots are static documents, no script is needed
+      doc.querySelectorAll('script').forEach(el => el.remove());
+
+      // Remove tracking and analytics artifacts
+      doc.querySelectorAll('img').forEach(el => {
+        const w = el.getAttribute('width');
+        const h = el.getAttribute('height');
+        const src = el.getAttribute('src') || '';
+        if ((w === '1' && h === '1') || (w === '0' && h === '0') ||
+            /pixel|beacon|track|analytics|\.gif\?/i.test(src)) {
+          el.remove();
         }
-        el.remove();
       });
+      doc.querySelectorAll('noscript').forEach(el => el.remove());
+      const trackingDomains = ['google-analytics', 'googletagmanager', 'doubleclick',
+        'intercom', 'sentry', 'datadoghq', 'churnzero', 'mixpanel', 'hotjar',
+        'segment', 'fullstory', 'heap', 'amplitude', 'optimizely', 'crazyegg',
+        'newrelic', 'clarity.ms'];
+      doc.querySelectorAll('link[rel="preconnect"], link[rel="dns-prefetch"], link[rel="preload"][as="script"]').forEach(el => {
+        const href = el.getAttribute('href') || '';
+        if (trackingDomains.some(d => href.includes(d))) el.remove();
+      });
+      doc.querySelectorAll('meta[name="csrf-token"], meta[name="csrf-param"]').forEach(el => el.remove());
 
       // Remove on* event handlers and nonce attributes
       for (const el of doc.querySelectorAll('*')) {
@@ -370,6 +382,14 @@ async function captureSnapshot(tabId, snapshotName, branchName, sourceUrl) {
           }
         }
       }
+
+      // Deduplicate stylesheet links
+      const seenHrefs = new Set();
+      doc.querySelectorAll('link[rel="stylesheet"]').forEach(el => {
+        const href = el.getAttribute('href');
+        if (seenHrefs.has(href)) { el.remove(); return; }
+        seenHrefs.add(href);
+      });
 
       // Replace external stylesheets with inlined <style> tags
       for (const link of doc.querySelectorAll('link[rel="stylesheet"]')) {
@@ -430,6 +450,100 @@ async function captureSnapshot(tabId, snapshotName, branchName, sourceUrl) {
           const resolved = resolveUrl(href);
           if (resourceMap.has(resolved)) link.setAttribute('href', resourceMap.get(resolved));
         }
+      }
+
+      // === CSS Optimization: purge unused rules, prune fonts, minify ===
+
+      // Helper: test if a CSS selector matches any element in the document
+      function selectorMatchesDoc(selectorText) {
+        return selectorText.split(',').some(sel => {
+          // Strip pseudo-classes and pseudo-elements before testing
+          const cleaned = sel
+            .replace(/::[\w-]+(\([^)]*\))?/g, '')
+            .replace(/:[\w-]+(\([^)]*\))?/g, '')
+            .replace(/\s+/g, ' ').trim();
+          if (!cleaned) return true; // Pure pseudo selector — keep
+          try { return !!doc.querySelector(cleaned); }
+          catch { return true; } // Invalid selector — keep to be safe
+        });
+      }
+
+      // Phase 1: Remove CSS rules whose selectors don't match any element
+      for (const styleEl of doc.querySelectorAll('style')) {
+        try {
+          const sheet = new CSSStyleSheet();
+          sheet.replaceSync(styleEl.textContent);
+          const kept = [];
+          for (const rule of sheet.cssRules) {
+            if (rule.type === CSSRule.STYLE_RULE) {
+              if (selectorMatchesDoc(rule.selectorText)) kept.push(rule.cssText);
+            } else if (rule.type === CSSRule.MEDIA_RULE) {
+              const inner = [];
+              for (const r of rule.cssRules) {
+                if (r.type === CSSRule.STYLE_RULE) {
+                  if (selectorMatchesDoc(r.selectorText)) inner.push(r.cssText);
+                } else inner.push(r.cssText);
+              }
+              if (inner.length) kept.push(`@media ${rule.conditionText}{${inner.join('')}}`);
+            } else {
+              kept.push(rule.cssText);
+            }
+          }
+          styleEl.textContent = kept.join('\n');
+        } catch { /* CSS parse error — skip purge for this block */ }
+      }
+
+      // Phase 2: Prune @font-face for font families not referenced in any rule
+      const usedFonts = new Set();
+      function collectFonts(rules) {
+        for (const rule of rules) {
+          if (rule.type === CSSRule.FONT_FACE_RULE) continue;
+          if (rule.style) {
+            const ff = rule.style.getPropertyValue('font-family');
+            if (ff) ff.split(',').forEach(f => usedFonts.add(f.trim().replace(/["']/g, '').toLowerCase()));
+          }
+          if (rule.cssRules) collectFonts(rule.cssRules);
+        }
+      }
+      for (const styleEl of doc.querySelectorAll('style')) {
+        try {
+          const sheet = new CSSStyleSheet();
+          sheet.replaceSync(styleEl.textContent);
+          collectFonts(sheet.cssRules);
+        } catch { /* skip */ }
+      }
+      for (const el of doc.querySelectorAll('[style]')) {
+        const m = (el.getAttribute('style') || '').match(/font-family\s*:\s*([^;]+)/i);
+        if (m) m[1].split(',').forEach(f => usedFonts.add(f.trim().replace(/["']/g, '').toLowerCase()));
+      }
+      for (const styleEl of doc.querySelectorAll('style')) {
+        try {
+          const sheet = new CSSStyleSheet();
+          sheet.replaceSync(styleEl.textContent);
+          const kept = [];
+          for (const rule of sheet.cssRules) {
+            if (rule.type === CSSRule.FONT_FACE_RULE) {
+              const family = rule.style.getPropertyValue('font-family')
+                .replace(/["']/g, '').toLowerCase().trim();
+              if (usedFonts.has(family)) kept.push(rule.cssText);
+            } else {
+              kept.push(rule.cssText);
+            }
+          }
+          styleEl.textContent = kept.join('\n');
+        } catch { /* skip */ }
+      }
+
+      // Phase 3: Minify CSS and remove empty style tags
+      for (const styleEl of doc.querySelectorAll('style')) {
+        let css = styleEl.textContent;
+        css = css.replace(/\/\*[\s\S]*?\*\//g, '');
+        css = css.replace(/\n\s*/g, ' ');
+        css = css.replace(/\s{2,}/g, ' ');
+        css = css.replace(/;\s*}/g, '}');
+        css = css.trim();
+        if (!css) { styleEl.remove(); continue; }
+        styleEl.textContent = css;
       }
 
       // Ensure charset and viewport
