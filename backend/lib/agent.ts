@@ -62,7 +62,7 @@ try {
         allowedTools: ['Read', 'Edit'],
         permissionMode: 'acceptEdits',
         maxTurns: 20,
-        maxBudgetUsd: 2.0,
+        maxBudgetUsd: 5.0,
         persistSession: false,
       }
     })) {

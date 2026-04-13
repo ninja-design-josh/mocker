@@ -60,6 +60,17 @@ function sendProgress(percent, text) {
 }
 
 /**
+ * Check if a URL is same-origin relative to a base URL.
+ */
+function isSameOrigin(url, baseUrl) {
+  try {
+    return new URL(url).origin === new URL(baseUrl).origin;
+  } catch {
+    return true; // Can't parse → treat as same-origin, inline it
+  }
+}
+
+/**
  * Fetch a resource and return it as a data URI.
  * Returns null if the fetch fails (graceful degradation).
  */
@@ -198,8 +209,11 @@ async function captureSnapshot(tabId, snapshotName, branchName, sourceUrl) {
 
   const stylesheetContents = [];
   for (const url of stylesheetUrls) {
-    const css = await fetchCss(url);
-    stylesheetContents.push({ url, css });
+    if (isSameOrigin(url, baseURI)) {
+      const css = await fetchCss(url);
+      stylesheetContents.push({ url, css });
+    }
+    // Cross-origin: not fetched → link tag preserved as-is in assembler
   }
 
   // Step 3: Collect all resource URLs from CSS
@@ -292,8 +306,17 @@ async function captureSnapshot(tabId, snapshotName, branchName, sourceUrl) {
       const parser = new DOMParser();
       const doc = parser.parseFromString(html, 'text/html');
 
-      // Remove all script tags
-      doc.querySelectorAll('script').forEach(el => el.remove());
+      // Remove scripts, but keep cross-origin <script src="..."> tags
+      doc.querySelectorAll('script').forEach(el => {
+        const src = el.getAttribute('src');
+        if (src) {
+          try {
+            const abs = new URL(src, sourceUrl).href;
+            if (new URL(abs).origin !== new URL(sourceUrl).origin) return;
+          } catch {}
+        }
+        el.remove();
+      });
 
       // Remove on* event handlers and nonce attributes
       for (const el of doc.querySelectorAll('*')) {
@@ -314,9 +337,8 @@ async function captureSnapshot(tabId, snapshotName, branchName, sourceUrl) {
           const style = doc.createElement('style');
           style.textContent = entry.css;
           link.replaceWith(style);
-        } else {
-          link.remove();
         }
+        // Cross-origin links without a matching entry are kept as-is
       }
 
       // Replace resource URLs in style tags and inline styles
