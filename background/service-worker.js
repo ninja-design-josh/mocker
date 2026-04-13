@@ -733,7 +733,7 @@ async function remixViaVercel(prompt, count, settings) {
     // Map phase to progress message
     const step = status.phase === 'downloading' ? 'Downloading snapshot...'
       : status.phase === 'installing' ? 'Installing tools in sandbox...'
-      : status.phase === 'editing' ? `Agent editing variation ${status.variation} of ${status.total}...`
+      : status.phase === 'editing' ? `Agent editing variation ${status.variation} of ${status.total}${status.turn ? ` (turn ${status.turn})` : ''}...`
       : status.phase === 'uploading' ? `Uploading variation ${status.variation}...`
       : status.phase === 'variation-complete' ? `Variation ${status.variation} complete`
       : status.phase === 'starting' ? 'Starting sandbox...'

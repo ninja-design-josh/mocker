@@ -51,6 +51,8 @@ try {
 
   for (let i = 1; i <= config.count; i++) {
     writeFileSync('/vercel/sandbox/page.html', strippedHtml);
+    const turns = [];
+    let turnNum = 0;
     updateStatus({ phase: 'editing', variation: i, total: config.count, results });
 
     for await (const message of query({
@@ -66,13 +68,32 @@ try {
         persistSession: false,
       }
     })) {
+      turnNum++;
+      const entry = { turn: turnNum, type: message.type, subtype: message.subtype || null };
+      if (message.type === 'assistant' && message.message) {
+        const content = message.message.content || [];
+        entry.tools = content.filter(b => b.type === 'tool_use').map(b => b.name);
+        const text = content.filter(b => b.type === 'text').map(b => b.text).join(' ');
+        entry.text = text.length > 200 ? text.slice(0, 200) + '...' : text;
+      }
+      turns.push(entry);
+      updateStatus({ phase: 'editing', variation: i, total: config.count, results, turn: turnNum, turns });
+
       if (message.type === 'result' && message.subtype !== 'success') {
         const errors = 'errors' in message ? message.errors.join('; ') : '';
         throw new Error('Agent failed: ' + message.subtype + (errors ? ' - ' + errors : ''));
       }
     }
 
-    updateStatus({ phase: 'uploading', variation: i, total: config.count, results });
+    // Upload turn log to Blob for debugging
+    const logBlob = await put('mocker/' + config.snapshotName + '/log-' + i + '.json', JSON.stringify(turns, null, 2), {
+      access: 'public',
+      contentType: 'application/json',
+      addRandomSuffix: true,
+      token: process.env.BLOB_READ_WRITE_TOKEN,
+    });
+
+    updateStatus({ phase: 'uploading', variation: i, total: config.count, results, logUrl: logBlob.url });
     const modified = readFileSync('/vercel/sandbox/page.html', 'utf-8');
     const final = restoreDataUris(modified, dataUriMap);
 
@@ -97,6 +118,9 @@ export interface RemixJobStatus {
   phase: string;
   variation?: number;
   total?: number;
+  turn?: number;
+  turns?: Array<{ turn: number; type: string; subtype: string | null; tools?: string[]; text?: string }>;
+  logUrl?: string;
   results?: Array<{ variationNumber: number; blobUrl: string; fileName: string }>;
   error?: string;
   updatedAt?: number;
