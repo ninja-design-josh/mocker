@@ -3,8 +3,11 @@ import { Sandbox } from '@vercel/sandbox';
 const SYSTEM_PROMPT = `You are an expert web developer modifying an HTML page.
 You have access to a single file: page.html in the current directory.
 
-Rules:
-- Read the file first to understand its structure
+Efficiency rules — these are critical for keeping costs down:
+- The file may be very large (1MB+). NEVER read the entire file sequentially.
+- Use Grep to search for specific elements, classes, IDs, or text content
+- Use Read with offset/limit to read only the sections you need
+- Use Bash (wc -l page.html) to check the file size first
 - Make targeted edits using the Edit tool — do NOT rewrite the entire file
 - Preserve all {{DATAURI_N}} placeholders exactly as-is — these are image/font references
 - Preserve the indentation and formatting style of the original
@@ -57,12 +60,11 @@ try {
     updateStatus({ phase: 'editing', variation: i, total: config.count, results });
 
     for await (const message of query({
-      prompt: 'Read page.html, then modify it as follows: ' + config.prompt,
+      prompt: 'Modify page.html as follows: ' + config.prompt,
       options: {
         cwd: '/vercel/sandbox',
         systemPrompt: config.systemPrompt,
         model: config.model,
-        allowedTools: ['Read', 'Edit'],
         permissionMode: 'acceptEdits',
         maxTurns: 200,
         maxBudgetUsd: 10.0,
