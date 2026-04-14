@@ -161,7 +161,7 @@ export async function startRemixJob(opts: {
   const sandbox = await Sandbox.create({
     runtime: 'node22',
     resources: { vcpus: 2 },
-    timeout: 1_200_000,
+    timeout: 2_400_000,
     env: {
       ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY || '',
       BLOB_READ_WRITE_TOKEN: process.env.BLOB_READ_WRITE_TOKEN || '',
@@ -202,7 +202,17 @@ export async function getRemixJobStatus(sandboxId: string): Promise<RemixJobStat
     try {
       const buffer = await sandbox.readFileToBuffer({ path: 'status.json' });
       if (buffer) {
-        return { ...JSON.parse(buffer.toString('utf-8')), sandboxStatus: sandbox.status };
+        const status = JSON.parse(buffer.toString('utf-8'));
+        // If sandbox stopped but worker didn't write a terminal status, it crashed/timed out
+        if (status.phase !== 'done' && status.phase !== 'error') {
+          return {
+            ...status,
+            phase: 'error',
+            error: `Sandbox ${sandbox.status} during "${status.phase}" phase (likely timed out)`,
+            sandboxStatus: sandbox.status,
+          };
+        }
+        return { ...status, sandboxStatus: sandbox.status };
       }
     } catch {}
     return { phase: 'error', error: `Sandbox ${sandbox.status}`, sandboxStatus: sandbox.status };

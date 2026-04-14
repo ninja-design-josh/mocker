@@ -8,47 +8,145 @@ const STORAGE_KEY = 'mocker_settings';
 
 const SIZE_WARNING_BYTES = 10 * 1024 * 1024; // 10 MB
 
-let lastCapture = null;
+// In-memory active context: which snapshot/version we're working with
+let activeContext = { snapshotId: null, versionId: null, html: null };
 
-function openCaptureDb() {
+// ── IndexedDB v2: snapshots + versions ───────────────────────────────────
+
+function openMockerDb() {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open('mocker_captures', 1);
-    req.onupgradeneeded = () => req.result.createObjectStore('captures');
+    const req = indexedDB.open('mocker_data', 2);
+    req.onupgradeneeded = (e) => {
+      const db = req.result;
+      // Migrate from v1 if old store exists
+      if (e.oldVersion < 2) {
+        if (db.objectStoreNames.contains('captures')) {
+          db.deleteObjectStore('captures');
+        }
+        if (!db.objectStoreNames.contains('snapshots')) {
+          const snap = db.createObjectStore('snapshots', { keyPath: 'id', autoIncrement: true });
+          snap.createIndex('createdAt', 'createdAt');
+        }
+        if (!db.objectStoreNames.contains('versions')) {
+          const ver = db.createObjectStore('versions', { keyPath: 'id', autoIncrement: true });
+          ver.createIndex('snapshotId', 'snapshotId');
+          ver.createIndex('parentId', 'parentId');
+          ver.createIndex('snapshotId_depth', ['snapshotId', 'depth']);
+        }
+      }
+    };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
   });
 }
 
-async function saveLastCapture(capture) {
-  lastCapture = capture;
-  try {
-    const db = await openCaptureDb();
-    await new Promise((resolve, reject) => {
-      const tx = db.transaction('captures', 'readwrite');
-      tx.objectStore('captures').put(capture, 'last');
-      tx.oncomplete = resolve;
-      tx.onerror = () => reject(tx.error);
-    });
-  } catch {
-    // IndexedDB unavailable — in-memory only
-  }
+async function saveSnapshot(snapshot) {
+  const db = await openMockerDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('snapshots', 'readwrite');
+    const store = tx.objectStore('snapshots');
+    const req = store.add(snapshot);
+    req.onsuccess = () => resolve(req.result); // returns auto-increment id
+    tx.onerror = () => reject(tx.error);
+  });
 }
 
-async function loadLastCapture() {
-  if (lastCapture) return lastCapture;
-  try {
-    const db = await openCaptureDb();
-    lastCapture = await new Promise((resolve, reject) => {
-      const tx = db.transaction('captures', 'readonly');
-      const req = tx.objectStore('captures').get('last');
-      req.onsuccess = () => resolve(req.result || null);
-      req.onerror = () => reject(req.error);
-    });
-  } catch {
-    // IndexedDB unavailable
-  }
-  return lastCapture;
+async function getSnapshot(id) {
+  const db = await openMockerDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('snapshots', 'readonly');
+    const req = tx.objectStore('snapshots').get(id);
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror = () => reject(tx.error);
+  });
 }
+
+async function getAllSnapshots() {
+  const db = await openMockerDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('snapshots', 'readonly');
+    const req = tx.objectStore('snapshots').index('createdAt').openCursor(null, 'prev');
+    const results = [];
+    req.onsuccess = () => {
+      const cursor = req.result;
+      if (cursor) {
+        results.push(cursor.value);
+        cursor.continue();
+      } else {
+        resolve(results);
+      }
+    };
+    req.onerror = () => reject(tx.error);
+  });
+}
+
+async function saveVersion(version) {
+  const db = await openMockerDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('versions', 'readwrite');
+    const store = tx.objectStore('versions');
+    const req = store.add(version);
+    req.onsuccess = () => resolve(req.result);
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+async function getVersion(id) {
+  const db = await openMockerDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('versions', 'readonly');
+    const req = tx.objectStore('versions').get(id);
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror = () => reject(tx.error);
+  });
+}
+
+async function getVersionsForSnapshot(snapshotId) {
+  const db = await openMockerDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('versions', 'readonly');
+    const idx = tx.objectStore('versions').index('snapshotId');
+    const req = idx.getAll(snapshotId);
+    req.onsuccess = () => resolve(req.result || []);
+    req.onerror = () => reject(tx.error);
+  });
+}
+
+// Also try to migrate the old mocker_captures DB data on first run
+async function migrateOldDb() {
+  try {
+    const oldReq = indexedDB.open('mocker_captures', 1);
+    oldReq.onsuccess = async () => {
+      const oldDb = oldReq.result;
+      if (!oldDb.objectStoreNames.contains('captures')) { oldDb.close(); return; }
+      try {
+        const tx = oldDb.transaction('captures', 'readonly');
+        const getReq = tx.objectStore('captures').get('last');
+        getReq.onsuccess = async () => {
+          const old = getReq.result;
+          oldDb.close();
+          if (old && old.snapshotName) {
+            // Save as a snapshot in the new DB
+            await saveSnapshot({
+              snapshotName: old.snapshotName,
+              sourceUrl: '',
+              blobUrl: null,
+              repoUrl: null,
+              branchName: old.branchName || null,
+              createdAt: Date.now(),
+            });
+          }
+          // Delete old DB
+          indexedDB.deleteDatabase('mocker_captures');
+        };
+      } catch { oldDb.close(); }
+    };
+    oldReq.onerror = () => {};
+  } catch { /* ignore */ }
+}
+
+// Run migration on startup
+migrateOldDb();
 
 /**
  * Send progress updates to the popup.
@@ -641,32 +739,68 @@ async function captureSnapshot(tabId, snapshotName, branchName, sourceUrl) {
     console.warn(`Mocker: Snapshot is ${sizeMB} MB — this is large and may be slow to commit.`);
   }
 
-  // Step 8: Commit to provider
-  const provider = settings.provider || 'gitlab';
-  const providerName = provider === 'github' ? 'GitHub' : 'GitLab';
-  const commit = provider === 'github' ? githubCommit : gitlabCommit;
+  // Step 8: Upload to Blob (primary) and optionally commit to repo
+  const result = {};
 
-  sendProgress(90, `Saving to ${providerName}...`);
-
-  const result = await commit(snapshotName, branchName, snapshot);
-
-  // Upload to Vercel Blob for a shareable preview URL
   if (useBlob) {
-    try {
-      const previewUrl = await uploadToBlob(
-        vercelUrl, vercelApiKey,
-        `mocker/${snapshotName}/snapshot.html`,
-        new Blob([snapshot], { type: 'text/html' })
-      );
-      result.previewUrl = previewUrl;
-    } catch {
-      // Non-fatal — repo commit already succeeded
-    }
+    sendProgress(90, 'Uploading to Blob...');
+    const blobUrl = await uploadToBlob(
+      vercelUrl, vercelApiKey,
+      `mocker/${snapshotName}/snapshot.html`,
+      new Blob([snapshot], { type: 'text/html' })
+    );
+    result.previewUrl = blobUrl;
+    result.blobUrl = blobUrl;
   }
 
-  sendProgress(100, 'Done!');
+  // Conditionally commit to Git repo
+  const shouldCommitToRepo = settings.defaultSaveToRepo;
+  const hasRepoCreds = settings.provider === 'github'
+    ? !!(settings.githubToken && settings.githubOwner && settings.githubRepo)
+    : !!(settings.gitlabUrl && settings.accessToken && settings.projectId);
 
-  await saveLastCapture({ html: snapshot, snapshotName, branchName });
+  if (shouldCommitToRepo && hasRepoCreds) {
+    const provider = settings.provider || 'gitlab';
+    const providerName = provider === 'github' ? 'GitHub' : 'GitLab';
+    const commit = provider === 'github' ? githubCommit : gitlabCommit;
+
+    sendProgress(93, `Saving to ${providerName}...`);
+    const repoResult = await commit(snapshotName, branchName, snapshot);
+    result.fileUrl = repoResult.fileUrl;
+    result.commitUrl = repoResult.commitUrl;
+    result.branch = repoResult.branch;
+    result.repoUrl = repoResult.fileUrl;
+  } else if (!useBlob) {
+    // Legacy mode: no Blob configured, must commit to repo
+    const provider = settings.provider || 'gitlab';
+    const providerName = provider === 'github' ? 'GitHub' : 'GitLab';
+    const commit = provider === 'github' ? githubCommit : gitlabCommit;
+
+    sendProgress(90, `Saving to ${providerName}...`);
+    const repoResult = await commit(snapshotName, branchName, snapshot);
+    result.fileUrl = repoResult.fileUrl;
+    result.commitUrl = repoResult.commitUrl;
+    result.branch = repoResult.branch;
+    result.repoUrl = repoResult.fileUrl;
+  }
+
+  sendProgress(97, 'Saving...');
+
+  // Save to IndexedDB
+  const snapshotId = await saveSnapshot({
+    snapshotName,
+    sourceUrl,
+    blobUrl: result.blobUrl || null,
+    repoUrl: result.repoUrl || null,
+    branchName,
+    createdAt: Date.now(),
+  });
+
+  // Set active context
+  activeContext = { snapshotId, versionId: null, html: snapshot };
+  result.snapshotId = snapshotId;
+
+  sendProgress(100, 'Done!');
 
   return result;
 }
@@ -738,6 +872,7 @@ async function uploadToBlob(vercelUrl, vercelApiKey, pathname, blob) {
       headers: {
         'Authorization': `Bearer ${clientToken}`,
         'x-content-type': blob.type,
+        'x-content-disposition': 'inline',
         'x-add-random-suffix': '1',
         'x-cache-control-max-age': '31536000',
       },
@@ -757,14 +892,15 @@ async function uploadToBlob(vercelUrl, vercelApiKey, pathname, blob) {
 /**
  * Remix via Vercel backend (Agent SDK).
  * Streams SSE from the backend and forwards progress to the sidebar.
+ * sourceContext: { snapshotId, versionId?, html, snapshotName }
  */
-async function remixViaVercel(prompt, count, settings) {
+async function remixViaVercel(prompt, count, settings, sourceContext) {
   const { vercelUrl, vercelApiKey, alsoCommitToRepo } = settings;
   const provider = settings.provider || 'gitlab';
   const commit = provider === 'github' ? githubCommit : gitlabCommit;
 
-  const { strippedHtml, dataUriMap } = stripDataUris(lastCapture.html);
-  const snapshotName = lastCapture.snapshotName;
+  const { strippedHtml, dataUriMap } = stripDataUris(sourceContext.html);
+  const snapshotName = sourceContext.snapshotName;
 
   // Upload stripped HTML and data URI map to Blob
   sendRemixProgress(0, count, 'Uploading snapshot to backend...');
@@ -807,17 +943,63 @@ async function remixViaVercel(prompt, count, settings) {
 
   const { jobId } = await startResp.json();
 
+  // Compute version tree depth before polling so we can save incrementally
+  const parentId = sourceContext.versionId || null;
+  let parentDepth = 0;
+  if (parentId) {
+    const parentVersion = await getVersion(parentId);
+    if (parentVersion) parentDepth = parentVersion.depth;
+  }
+  const depth = parentId ? parentDepth + 1 : 0;
+
+  let lastLogUrl = null;
+
+  // Save a new result as a version in IndexedDB and notify sidebar
+  async function saveResultAsVersion(r) {
+    if (r.versionId) return; // already saved
+    const vid = await saveVersion({
+      snapshotId: sourceContext.snapshotId,
+      parentId,
+      variationNum: r.variationNum,
+      blobUrl: r.fileUrl,
+      prompt,
+      model: settings.remixModel || 'claude-sonnet-4-6',
+      logUrl: lastLogUrl,
+      costUsd: null,
+      repoUrl: r.repoUrl || null,
+      depth,
+      createdAt: Date.now(),
+    });
+    r.versionId = vid;
+    // Notify sidebar so version tree updates immediately
+    chrome.runtime.sendMessage({
+      action: 'remixVariationComplete',
+      snapshotId: sourceContext.snapshotId,
+    }).catch(() => {});
+  }
+
+  // Track and save new results from status polling
+  async function processNewResults(statusResults) {
+    if (!statusResults) return;
+    for (const r of statusResults) {
+      if (!results.find(x => x.fileName === r.fileName)) {
+        const entry = { fileName: r.fileName, fileUrl: r.blobUrl, variationNum: r.variationNumber || results.length + 1 };
+        results.push(entry);
+        await saveResultAsVersion(entry);
+      }
+    }
+  }
+
   // Poll for status — sandbox runs independently, no serverless function timeout
   const results = [];
-  let lastLogUrl = null;
-  const maxPollMs = 20 * 60 * 1000;
+  const maxPollMs = 45 * 60 * 1000;
   const pollStart = Date.now();
 
   while (true) {
     await new Promise(r => setTimeout(r, 3000));
 
     if (Date.now() - pollStart > maxPollMs) {
-      throw new Error('Remix timed out after 20 minutes');
+      throw new Error('Remix timed out after 45 minutes');
     }
 
     const statusResp = await fetch(
@@ -833,15 +1015,13 @@ async function remixViaVercel(prompt, count, settings) {
     const status = await statusResp.json();
 
     if (status.phase === 'done') {
-      for (const r of (status.results || [])) {
-        if (!results.find(x => x.fileName === r.fileName)) {
-          results.push({ fileName: r.fileName, fileUrl: r.blobUrl });
-        }
-      }
+      await processNewResults(status.results);
       break;
     }
 
     if (status.phase === 'error') {
+      // Still save any partial results before throwing
+      await processNewResults(status.results);
       throw new Error(status.error || 'Remix failed');
     }
 
@@ -861,18 +1041,16 @@ async function remixViaVercel(prompt, count, settings) {
       costUsd: status.costUsd,
     });
 
-    // Track partial results as they come in
-    if (status.results) {
-      for (const r of status.results) {
-        if (!results.find(x => x.fileName === r.fileName)) {
-          results.push({ fileName: r.fileName, fileUrl: r.blobUrl });
-        }
-      }
-    }
+    // Save completed variations immediately
+    await processNewResults(status.results);
   }
 
   // Optionally commit each remix to Git repo
-  if (alsoCommitToRepo) {
+  const hasRepoCreds = settings.provider === 'github'
+    ? !!(settings.githubToken && settings.githubOwner && settings.githubRepo)
+    : !!(settings.gitlabUrl && settings.accessToken && settings.projectId);
+
+  if (alsoCommitToRepo && hasRepoCreds) {
     for (let i = 0; i < results.length; i++) {
       const r = results[i];
       sendRemixProgress(i + 1, results.length, `Committing ${r.fileName} to repo...`);
@@ -880,23 +1058,26 @@ async function remixViaVercel(prompt, count, settings) {
       const htmlContent = await htmlResp.text();
       const commitResult = await commit(
         snapshotName,
-        lastCapture.branchName,
+        sourceContext.branchName || settings.branch || 'main',
         htmlContent,
         r.fileName
       );
-      r.fileUrl = commitResult.fileUrl;
+      r.repoUrl = commitResult.fileUrl;
     }
   }
 
-  return { results, logUrl: lastLogUrl };
+  const versionIds = results.map(r => r.versionId).filter(Boolean);
+
+  return { results, logUrl: lastLogUrl, versionIds };
 }
 
 /**
  * Call Claude to generate remix variations via Vercel backend.
+ * snapshotId passed explicitly from sidebar (survives SW restarts).
  */
-async function remixSnapshot(prompt, count) {
-  await loadLastCapture();
-  if (!lastCapture) {
+async function remixSnapshot(snapshotId, prompt, count) {
+  const sid = snapshotId || activeContext.snapshotId;
+  if (!sid) {
     throw new Error('No snapshot captured yet. Capture a snapshot first.');
   }
 
@@ -906,11 +1087,99 @@ async function remixSnapshot(prompt, count) {
   if (!settings?.vercelUrl || !settings?.vercelApiKey) {
     throw new Error('Vercel backend not configured. Add Backend URL and API Key in Settings.');
   }
-  return remixViaVercel(prompt, count, settings);
+
+  const snapshot = await getSnapshot(sid);
+  if (!snapshot) throw new Error('Snapshot not found.');
+
+  // Use in-memory HTML if available, otherwise fetch from blob
+  let html = (activeContext.snapshotId === sid && activeContext.html) ? activeContext.html : null;
+  if (!html && snapshot.blobUrl) {
+    const resp = await fetch(snapshot.blobUrl);
+    if (!resp.ok) throw new Error('Failed to fetch snapshot HTML from Blob.');
+    html = await resp.text();
+    activeContext = { snapshotId: sid, versionId: null, html };
+  }
+  if (!html) throw new Error('Snapshot has no HTML content.');
+
+  const sourceContext = {
+    snapshotId: sid,
+    versionId: null,
+    html,
+    snapshotName: snapshot.snapshotName || 'snapshot',
+    branchName: snapshot.branchName,
+  };
+
+  return remixViaVercel(prompt, count, settings, sourceContext);
 }
 
 /**
- * Listen for messages from the popup.
+ * Remix from a specific version (re-remix).
+ * Fetches HTML from the version's blobUrl.
+ */
+async function remixFromVersion(versionId, prompt, count) {
+  const version = await getVersion(versionId);
+  if (!version) throw new Error('Version not found.');
+
+  if (!version.blobUrl) throw new Error('Version has no blob URL.');
+
+  const settingsResult = await chrome.storage.sync.get(STORAGE_KEY);
+  const settings = settingsResult[STORAGE_KEY];
+
+  if (!settings?.vercelUrl || !settings?.vercelApiKey) {
+    throw new Error('Vercel backend not configured. Add Backend URL and API Key in Settings.');
+  }
+
+  // Fetch HTML from blob
+  const resp = await fetch(version.blobUrl);
+  if (!resp.ok) throw new Error('Failed to fetch version HTML from Blob.');
+  const html = await resp.text();
+
+  const snapshot = await getSnapshot(version.snapshotId);
+  const sourceContext = {
+    snapshotId: version.snapshotId,
+    versionId: version.id,
+    html,
+    snapshotName: snapshot?.snapshotName || 'snapshot',
+    branchName: snapshot?.branchName,
+  };
+
+  return remixViaVercel(prompt, count, settings, sourceContext);
+}
+
+/**
+ * On-demand commit of a snapshot or version to Git repo.
+ */
+async function commitToRepo(snapshotId, versionId) {
+  const settingsResult = await chrome.storage.sync.get(STORAGE_KEY);
+  const settings = settingsResult[STORAGE_KEY];
+  const provider = settings.provider || 'gitlab';
+  const commit = provider === 'github' ? githubCommit : gitlabCommit;
+
+  let html, name, branch;
+  if (versionId) {
+    const version = await getVersion(versionId);
+    if (!version || !version.blobUrl) throw new Error('Version not found or has no blob URL.');
+    const resp = await fetch(version.blobUrl);
+    if (!resp.ok) throw new Error('Failed to fetch version HTML.');
+    html = await resp.text();
+    const snapshot = await getSnapshot(version.snapshotId);
+    name = snapshot?.snapshotName || 'snapshot';
+    branch = snapshot?.branchName || settings.branch || 'main';
+  } else {
+    const snapshot = await getSnapshot(snapshotId);
+    if (!snapshot || !snapshot.blobUrl) throw new Error('Snapshot not found or has no blob URL.');
+    const resp = await fetch(snapshot.blobUrl);
+    if (!resp.ok) throw new Error('Failed to fetch snapshot HTML.');
+    html = await resp.text();
+    name = snapshot.snapshotName;
+    branch = snapshot.branchName || settings.branch || 'main';
+  }
+
+  return commit(name, branch, html);
+}
+
+/**
+ * Listen for messages from the sidebar.
  */
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.action === 'captureSnapshot') {
@@ -921,9 +1190,162 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.action === 'remixSnapshot') {
-    remixSnapshot(msg.prompt, msg.count)
-      .then(data => sendResponse({ results: data.results, logUrl: data.logUrl }))
+    remixSnapshot(msg.snapshotId, msg.prompt, msg.count)
+      .then(data => sendResponse({ results: data.results, logUrl: data.logUrl, versionIds: data.versionIds }))
       .catch(err => sendResponse({ error: err.message }));
+    return true;
+  }
+
+  if (msg.action === 'remixFromVersion') {
+    remixFromVersion(msg.versionId, msg.prompt, msg.count)
+      .then(data => sendResponse({ results: data.results, logUrl: data.logUrl, versionIds: data.versionIds }))
+      .catch(err => sendResponse({ error: err.message }));
+    return true;
+  }
+
+  if (msg.action === 'getVersionTree') {
+    getVersionsForSnapshot(msg.snapshotId)
+      .then(versions => sendResponse({ versions }))
+      .catch(err => sendResponse({ error: err.message }));
+    return true;
+  }
+
+  if (msg.action === 'getSnapshots') {
+    getAllSnapshots()
+      .then(snapshots => sendResponse({ snapshots }))
+      .catch(err => sendResponse({ error: err.message }));
+    return true;
+  }
+
+  if (msg.action === 'getSnapshotsWithVersions') {
+    (async () => {
+      try {
+        const snapshots = await getAllSnapshots();
+        for (const s of snapshots) {
+          s.versions = await getVersionsForSnapshot(s.id);
+        }
+        sendResponse({ snapshots });
+      } catch (err) {
+        sendResponse({ error: err.message });
+      }
+    })();
+    return true;
+  }
+
+  if (msg.action === 'commitToRepo') {
+    commitToRepo(msg.snapshotId, msg.versionId)
+      .then(result => sendResponse(result))
+      .catch(err => sendResponse({ error: err.message }));
+    return true;
+  }
+
+  if (msg.action === 'publishVersion') {
+    (async () => {
+      try {
+        const version = await getVersion(msg.versionId);
+        if (!version || !version.blobUrl) throw new Error('Version not found or has no blob URL.');
+
+        const snapshot = await getSnapshot(version.snapshotId);
+        const snapshotName = snapshot?.snapshotName || 'snapshot';
+
+        const settingsResult = await chrome.storage.sync.get(STORAGE_KEY);
+        const settings = settingsResult[STORAGE_KEY];
+        if (!settings?.vercelUrl || !settings?.vercelApiKey) {
+          throw new Error('Vercel backend not configured.');
+        }
+
+        // Fetch HTML from existing blob and re-upload with inline disposition
+        const resp = await fetch(version.blobUrl);
+        if (!resp.ok) throw new Error('Failed to fetch version HTML.');
+        const html = await resp.text();
+
+        const publishUrl = await uploadToBlob(
+          settings.vercelUrl, settings.vercelApiKey,
+          `mocker/${snapshotName}/published-${msg.versionLabel || 'version'}.html`,
+          new Blob([html], { type: 'text/html' })
+        );
+
+        sendResponse({ url: publishUrl });
+      } catch (err) {
+        sendResponse({ error: err.message });
+      }
+    })();
+    return true;
+  }
+
+  if (msg.action === 'generateSpec') {
+    (async () => {
+      try {
+        const version = await getVersion(msg.versionId);
+        if (!version) throw new Error('Version not found.');
+        if (!version.blobUrl) throw new Error('Version has no blob URL.');
+
+        const snapshot = await getSnapshot(version.snapshotId);
+        if (!snapshot) throw new Error('Snapshot not found.');
+
+        // Always diff against the original snapshot
+        if (!snapshot.blobUrl) throw new Error('Snapshot has no blob URL.');
+        const snapshotBlobUrl = snapshot.blobUrl;
+
+        const settingsResult = await chrome.storage.sync.get(STORAGE_KEY);
+        const settings = settingsResult[STORAGE_KEY];
+        if (!settings?.vercelUrl || !settings?.vercelApiKey) {
+          throw new Error('Vercel backend not configured.');
+        }
+
+        const resp = await fetch(`${settings.vercelUrl}/api/generate-spec`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${settings.vercelApiKey}`,
+          },
+          body: JSON.stringify({
+            snapshotBlobUrl,
+            versionBlobUrl: version.blobUrl,
+            prompt: version.prompt || '',
+            snapshotName: snapshot.snapshotName || 'snapshot',
+            versionLabel: msg.versionLabel || '',
+          }),
+        });
+
+        if (!resp.ok) {
+          const text = await resp.text();
+          throw new Error(`Spec generation failed: ${resp.status} ${text}`);
+        }
+
+        const data = await resp.json();
+        sendResponse({ spec: data.spec });
+      } catch (err) {
+        sendResponse({ error: err.message });
+      }
+    })();
+    return true;
+  }
+
+  if (msg.action === 'loadSnapshot') {
+    (async () => {
+      try {
+        const snapshot = await getSnapshot(msg.snapshotId);
+        if (snapshot) {
+          // Don't overwrite if we already have this snapshot loaded with HTML
+          if (activeContext.snapshotId === snapshot.id && activeContext.html) {
+            sendResponse({ snapshot });
+            return;
+          }
+          activeContext = { snapshotId: snapshot.id, versionId: null, html: null };
+          // Fetch HTML from blob and wait for it
+          if (snapshot.blobUrl) {
+            try {
+              const resp = await fetch(snapshot.blobUrl);
+              activeContext.html = await resp.text();
+            } catch { /* non-fatal */ }
+          }
+        }
+        sendResponse({ snapshot });
+      } catch (err) {
+        sendResponse({ error: err.message });
+      }
+    })();
     return true;
   }
 });

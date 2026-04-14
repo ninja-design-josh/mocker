@@ -25,6 +25,7 @@ const fields = {
   vercelUrl: document.getElementById('vercel-url'),
   vercelApiKey: document.getElementById('vercel-api-key'),
   alsoCommitToRepo: document.getElementById('also-commit-to-repo'),
+  defaultSaveToRepo: document.getElementById('default-save-to-repo'),
 };
 
 function showStatus(message, type = 'info') {
@@ -61,6 +62,7 @@ function getFormValues() {
     vercelUrl: fields.vercelUrl.value.replace(/\/+$/, ''),
     vercelApiKey: fields.vercelApiKey.value.trim(),
     alsoCommitToRepo: fields.alsoCommitToRepo.checked,
+    defaultSaveToRepo: fields.defaultSaveToRepo.checked,
   };
 }
 
@@ -95,8 +97,17 @@ async function loadSettings() {
   fields.vercelUrl.value = settings.vercelUrl || '';
   fields.vercelApiKey.value = settings.vercelApiKey || '';
   fields.alsoCommitToRepo.checked = !!settings.alsoCommitToRepo;
+  fields.defaultSaveToRepo.checked = !!settings.defaultSaveToRepo;
 
   updateProviderFields();
+
+  // Open repo details if repo creds exist
+  const hasRepo = settings.provider === 'github'
+    ? !!(settings.githubToken && settings.githubOwner && settings.githubRepo)
+    : !!(settings.gitlabUrl && settings.accessToken && settings.projectId);
+  if (hasRepo || settings.defaultSaveToRepo) {
+    document.getElementById('repo-details').open = true;
+  }
 }
 
 async function saveSettings(values) {
@@ -340,10 +351,24 @@ form.addEventListener('submit', async (e) => {
   e.preventDefault();
   const values = getFormValues();
 
-  const error = validateForProvider(values);
-  if (error) {
-    showStatus(error, 'error');
-    return;
+  // Only require backend URL + API key; repo fields validated only if defaultSaveToRepo
+  if (!values.vercelUrl || !values.vercelApiKey) {
+    // Check if repo creds exist as fallback (legacy mode)
+    const hasRepo = values.provider === 'github'
+      ? !!(values.githubToken && values.githubOwner && values.githubRepo)
+      : !!(values.gitlabUrl && values.accessToken && values.projectId);
+    if (!hasRepo) {
+      showStatus('Please configure either Backend URL + API Key, or repository credentials.', 'error');
+      return;
+    }
+  }
+
+  if (values.defaultSaveToRepo) {
+    const error = validateForProvider(values);
+    if (error) {
+      showStatus(error, 'error');
+      return;
+    }
   }
 
   try {

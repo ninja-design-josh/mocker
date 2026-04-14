@@ -160,3 +160,48 @@ select:focus {
 .actions {
   flex-wrap: wrap;
 }
+
+.actions-top {
+  margin-top: 16px;
+  margin-bottom: 0;
+}
+
+.actions-main {
+  margin-top: 24px;
+}
+
+details {
+  margin-bottom: 8px;
+}
+
+details summary {
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+}
+
+details summary::-webkit-details-marker {
+  display: none;
+}
+
+.section-title-collapsible {
+  position: relative;
+  padding-left: 20px;
+}
+
+.section-title-collapsible::before {
+  content: '\25B6';
+  position: absolute;
+  left: 0;
+  font-size: 10px;
+  transition: transform 0.2s;
+  top: 3px;
+}
+
+details[open] .section-title-collapsible::before {
+  transform: rotate(90deg);
+}
+
+.details-body {
+  padding-top: 12px;
+}
