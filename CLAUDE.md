@@ -19,9 +19,9 @@ There are no tests or linters configured.
 "Deploy" means commit, push to GitHub, and deploy the backend:
 ```
 git add -A && git commit -m "..." && git push
-cd backend && npm install && vercel --prod
+cd backend && vercel --prod
 ```
-**Important:** Always run `vercel --prod` from `backend/`, not the repo root — deploying from root produces an empty deployment with no functions.
+The Vercel project is `mocker-backend` (`mocker-backend.vercel.app`). Always deploy from the `backend/` directory. GitHub pushes also trigger auto-deploys via the Git integration.
 
 ## Architecture
 
@@ -74,7 +74,7 @@ After capturing a snapshot, the sidebar offers AI-powered remixing via a Vercel 
 
 ### Backend (`backend/`)
 
-A standalone Vercel project (TypeScript, no framework). Deploy with:
+The `mocker-backend` Vercel project (TypeScript, no framework). Deploy with:
 ```
 cd backend && npm install && vercel --prod
 ```
