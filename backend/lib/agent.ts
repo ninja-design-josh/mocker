@@ -27,9 +27,11 @@ Snapshot rules — the file is a static HTML snapshot:
 // Status is written to /vercel/sandbox/status.json for polling.
 const WORKER_SCRIPT = `
 import { execSync } from 'node:child_process';
-import { writeFileSync, readFileSync } from 'node:fs';
+import { writeFileSync, readFileSync, mkdirSync } from 'node:fs';
 
 const config = JSON.parse(readFileSync('/vercel/sandbox/worker-config.json', 'utf-8'));
+
+const results = [];
 
 function updateStatus(status) {
   writeFileSync('/vercel/sandbox/status.json', JSON.stringify(Object.assign({ updatedAt: Date.now() }, status)));
@@ -57,19 +59,19 @@ try {
   const { query } = await import('@anthropic-ai/claude-agent-sdk');
   const { put } = await import('@vercel/blob');
 
-  const results = [];
+  async function runVariation(i) {
+    const dir = '/vercel/sandbox/v' + i;
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(dir + '/page.html', strippedHtml);
 
-  for (let i = 1; i <= config.count; i++) {
-    writeFileSync('/vercel/sandbox/page.html', strippedHtml);
     const turns = [];
     let turnNum = 0;
     let costUsd = 0;
-    updateStatus({ phase: 'editing', variation: i, total: config.count, results });
 
     for await (const message of query({
       prompt: 'Modify page.html as follows: ' + config.prompt,
       options: {
-        cwd: '/vercel/sandbox',
+        cwd: dir,
         systemPrompt: config.systemPrompt,
         model: config.model,
         permissionMode: 'acceptEdits',
@@ -103,7 +105,7 @@ try {
 
       if (message.type === 'result' && message.subtype !== 'success') {
         const errors = 'errors' in message ? message.errors.join('; ') : '';
-        throw new Error('Agent failed: ' + message.subtype + (errors ? ' - ' + errors : ''));
+        throw new Error('Agent failed (variation ' + i + '): ' + message.subtype + (errors ? ' - ' + errors : ''));
       }
     }
 
@@ -116,7 +118,7 @@ try {
     });
 
     updateStatus({ phase: 'uploading', variation: i, total: config.count, results, logUrl: logBlob.url });
-    const modified = readFileSync('/vercel/sandbox/page.html', 'utf-8');
+    const modified = readFileSync(dir + '/page.html', 'utf-8');
     const final = restoreDataUris(modified, dataUriMap);
 
     const blob = await put('mocker/' + config.snapshotName + '/remix-' + i + '.html', final, {
@@ -130,9 +132,22 @@ try {
     updateStatus({ phase: 'variation-complete', variation: i, total: config.count, results });
   }
 
-  updateStatus({ phase: 'done', results });
+  // Run all variations in parallel — each gets its own directory
+  const outcomes = await Promise.allSettled(
+    Array.from({ length: config.count }, (_, i) => runVariation(i + 1))
+  );
+
+  const errors = outcomes
+    .filter(o => o.status === 'rejected')
+    .map(o => o.reason?.message || String(o.reason));
+
+  if (errors.length === config.count) {
+    throw new Error(errors.join('; '));
+  }
+
+  updateStatus({ phase: 'done', results, errors: errors.length ? errors : undefined });
 } catch (err) {
-  updateStatus({ phase: 'error', error: err.message || String(err) });
+  updateStatus({ phase: 'error', error: err.message || String(err), results });
 }
 `;
 
