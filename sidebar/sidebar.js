@@ -2,6 +2,7 @@ const STORAGE_KEY = 'mocker_settings';
 
 const sections = {
   noConfig: document.getElementById('no-config'),
+  noTab: document.getElementById('no-tab'),
   captureForm: document.getElementById('capture-form'),
   progress: document.getElementById('progress'),
   result: document.getElementById('result'),
@@ -56,7 +57,7 @@ let activeTab = 'capture'; // 'capture' or 'history'
 let lastCaptureSection = 'captureForm'; // remember which capture section was showing
 
 // Capture-flow sections (everything except history)
-const captureSections = ['noConfig', 'captureForm', 'progress', 'result', 'error'];
+const captureSections = ['noConfig', 'noTab', 'captureForm', 'progress', 'result', 'error'];
 
 function showSection(name) {
   // Hide all sections
@@ -656,7 +657,7 @@ async function init() {
 
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab?.url) {
-    showSection('noConfig');
+    showSection('noTab');
     return;
   }
 

@@ -379,4 +379,14 @@ form.addEventListener('submit', async (e) => {
   }
 });
 
+// Toggle password visibility
+document.querySelectorAll('.toggle-password').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const input = document.getElementById(btn.dataset.target);
+    const visible = input.type === 'text';
+    input.type = visible ? 'password' : 'text';
+    btn.classList.toggle('visible', !visible);
+  });
+});
+
 loadSettings();
