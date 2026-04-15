@@ -1,5 +1,5 @@
 import { Sandbox } from '@vercel/sandbox';
-import type { ReferenceImage } from './types.js';
+import type { ReferenceImage, BentoReference } from './types.js';
 
 const SYSTEM_PROMPT = `You are an expert web developer modifying an HTML page.
 You have access to a single file: page.html in the current directory.
@@ -213,6 +213,7 @@ export async function startRemixJob(opts: {
   count: number;
   snapshotName: string;
   referenceImages?: ReferenceImage[];
+  bento?: BentoReference;
 }): Promise<string> {
   const sandbox = await Sandbox.create({
     runtime: 'node22',
@@ -224,15 +225,20 @@ export async function startRemixJob(opts: {
     },
   });
 
+  const systemPrompt = opts.bento
+    ? SYSTEM_PROMPT + BENTO_ADDENDUM
+    : SYSTEM_PROMPT;
+
   const config = {
     snapshotBlobUrl: opts.snapshotBlobUrl,
     dataUriMapBlobUrl: opts.dataUriMapBlobUrl,
     prompt: opts.prompt,
-    systemPrompt: SYSTEM_PROMPT,
+    systemPrompt,
     model: opts.model,
     count: opts.count,
     snapshotName: opts.snapshotName,
     referenceImages: opts.referenceImages || [],
+    bento: opts.bento || null,
   };
 
   await sandbox.writeFiles([
