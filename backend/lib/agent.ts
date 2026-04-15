@@ -87,6 +87,12 @@ try {
     mkdirSync(dir, { recursive: true });
     writeFileSync(dir + '/page.html', strippedHtml);
 
+    if (config.bento) {
+      writeFileSync(dir + '/bento-tokens.css', config.bento.tokensCss);
+      writeFileSync(dir + '/bento.css', config.bento.componentsCss);
+      writeFileSync(dir + '/bento-reference.md', config.bento.referenceMd);
+    }
+
     const turns = [];
     let turnNum = 0;
     let costUsd = 0;
