@@ -74,6 +74,35 @@ After capturing a snapshot, the sidebar offers AI-powered remixing via a Vercel 
 5. Data URIs are restored server-side; complete HTML is uploaded to Vercel Blob
 6. Service worker polls `/api/remix-status?jobId=` every 3s for progress, phase transitions, and completed variations. Results are saved to IndexedDB incrementally as each variation completes.
 
+### Bento Integration
+
+When the sidebar's "Use Bento" toggle is on (default), the remix agent is
+given access to NinjaCat's Bento design system as a **visual/style
+reference only** — remixes stay self-contained HTML.
+
+Three hand-authored files in `backend/bento/` power this:
+- `bento-tokens.css` — `:root` CSS custom properties (all prefixed `--bento-*`)
+- `bento.css` — component class rules (all `.bento-*`-scoped)
+- `bento-reference.md` — canonical HTML snippet catalog for each component
+
+Flow: sidebar toggle → `msg.useBento` → service worker POST body →
+`/api/remix` reads the three files from its deployed filesystem (via
+`vercel.json`'s `includeFiles: "bento/**"`) → passes them in
+`config.bento` → worker writes them into each variation's dir →
+`BENTO_ADDENDUM` is appended to `SYSTEM_PROMPT` so the agent knows to
+read them → **post-edit**, worker injects `<style data-bento="tokens">`
+and `<style data-bento="components">` into the modified page's `<head>`
+before data-URI restoration.
+
+The sandbox never talks to GitLab. To refresh Bento:
+1. Edit the three files in `backend/bento/`.
+2. Redeploy (`git push` + `vercel --prod` from the repo root).
+
+To extend the v1 catalog, add both the component's `.bento-*` rules to
+`bento.css` AND its entry (canonical HTML / variants / tokens) to
+`bento-reference.md`. Keep every new selector `.bento-*`-scoped so
+Bento styles never leak onto a snapshot's original markup.
+
 ### Backend (`backend/`)
 
 The `mocker-backend` Vercel project (TypeScript, no framework). Deploy with:
