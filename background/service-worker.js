@@ -884,6 +884,7 @@ async function remixViaVercel(prompt, count, settings, sourceContext) {
       snapshotName,
       model: settings.remixModel || 'claude-sonnet-4-6',
       referenceImages: referenceImages.length ? referenceImages : undefined,
+      useBento: sourceContext.useBento === true,
     }),
   });
 
@@ -1027,7 +1028,7 @@ async function remixViaVercel(prompt, count, settings, sourceContext) {
  * Call Claude to generate remix variations via Vercel backend.
  * snapshotId passed explicitly from sidebar (survives SW restarts).
  */
-async function remixSnapshot(snapshotId, prompt, count, referenceImages) {
+async function remixSnapshot(snapshotId, prompt, count, referenceImages, useBento) {
   const sid = snapshotId || activeContext.snapshotId;
   if (!sid) {
     throw new Error('No snapshot captured yet. Capture a snapshot first.');
@@ -1060,6 +1061,7 @@ async function remixSnapshot(snapshotId, prompt, count, referenceImages) {
     snapshotName: snapshot.snapshotName || 'snapshot',
     branchName: snapshot.branchName,
     referenceImages,
+    useBento,
   };
 
   return remixViaVercel(prompt, count, settings, sourceContext);
@@ -1069,7 +1071,7 @@ async function remixSnapshot(snapshotId, prompt, count, referenceImages) {
  * Remix from a specific version (re-remix).
  * Fetches HTML from the version's blobUrl.
  */
-async function remixFromVersion(versionId, prompt, count, referenceImages) {
+async function remixFromVersion(versionId, prompt, count, referenceImages, useBento) {
   const version = await getVersion(versionId);
   if (!version) throw new Error('Version not found.');
 
@@ -1095,6 +1097,7 @@ async function remixFromVersion(versionId, prompt, count, referenceImages) {
     snapshotName: snapshot?.snapshotName || 'snapshot',
     branchName: snapshot?.branchName,
     referenceImages,
+    useBento,
   };
 
   return remixViaVercel(prompt, count, settings, sourceContext);
@@ -1144,14 +1147,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.action === 'remixSnapshot') {
-    remixSnapshot(msg.snapshotId, msg.prompt, msg.count, msg.referenceImages)
+    remixSnapshot(msg.snapshotId, msg.prompt, msg.count, msg.referenceImages, msg.useBento)
       .then(data => sendResponse({ results: data.results, logUrl: data.logUrl, versionIds: data.versionIds }))
       .catch(err => sendResponse({ error: err.message }));
     return true;
   }
 
   if (msg.action === 'remixFromVersion') {
-    remixFromVersion(msg.versionId, msg.prompt, msg.count, msg.referenceImages)
+    remixFromVersion(msg.versionId, msg.prompt, msg.count, msg.referenceImages, msg.useBento)
       .then(data => sendResponse({ results: data.results, logUrl: data.logUrl, versionIds: data.versionIds }))
       .catch(err => sendResponse({ error: err.message }));
     return true;
