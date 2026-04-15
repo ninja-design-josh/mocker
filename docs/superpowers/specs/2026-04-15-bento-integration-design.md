@@ -83,11 +83,11 @@ Sidebar (UI)                    Backend (Vercel)                   Sandbox (micr
 - `backend/lib/agent.ts`:
   - `startRemixJob` signature gains `bento?: { tokensCss, componentsCss, referenceMd }`.
   - `worker-config.json` carries a `bento` key (three strings) when opted in.
+  - System prompt composition happens **in `startRemixJob`** (not in the worker): `systemPrompt = SYSTEM_PROMPT + (opts.bento ? BENTO_ADDENDUM : '')`, written once onto `config.systemPrompt`. The worker continues to pass `config.systemPrompt` through to `query(...)` unchanged.
   - `WORKER_SCRIPT`:
-    - In `runVariation(i)`, if `config.bento`, write `bento-tokens.css`, `bento.css`, `bento-reference.md` into `v{N}` alongside `page.html`.
-    - Build the system prompt as `basePrompt + (config.bento ? bentoPromptSection : '')`.
+    - In `runVariation(i)`, if `config.bento`, write `bento-tokens.css`, `bento.css`, `bento-reference.md` into `v{N}` alongside `page.html`. Agent reads them via relative paths (`bento-reference.md`, etc.) since its `cwd` is `v{N}`.
     - **Post-edit injection step (new):** after the agent finishes and before `restoreDataUris`, read modified `page.html`, insert two `<style>` blocks (`data-bento="tokens"` then `data-bento="components"`) into `<head>`, then restore data URIs, then upload.
-  - `SYSTEM_PROMPT` — factor out a Bento addendum string: tells the agent the three files exist in `cwd`, instructs it to Read/Grep `bento-reference.md`, prefer `.bento-*` classes and `var(--bento-*)` tokens, **not** to add `<link>` or `<style>` tags for Bento (worker injects them post-edit), and that the page is still a script-free static snapshot (the existing Snapshot rules still apply).
+  - `BENTO_ADDENDUM` — new constant in `agent.ts`: tells the agent the three files exist in its working directory by relative name, instructs it to Read/Grep `bento-reference.md`, prefer `.bento-*` classes and `var(--bento-*)` tokens, **not** to add `<link>` or `<style>` tags for Bento (worker injects them post-edit), and that the page is still a script-free static snapshot (the existing Snapshot rules still apply).
 
 ### Modified files (Mocker extension)
 
@@ -112,9 +112,8 @@ Sidebar (UI)                    Backend (Vercel)                   Sandbox (micr
 5. **`startRemixJob`** creates sandbox, writes `worker-config.json` (now with `bento` key), `worker.mjs`, `status.json`; launches `node worker.mjs` detached.
 6. **Worker, per variation (in parallel):**
    1. `mkdir v{N}`, write `page.html`.
-   2. If `config.bento`: write `bento-tokens.css`, `bento.css`, `bento-reference.md` into `v{N}`.
-   3. Build system prompt = base + Bento addendum (if applicable).
-   4. Run `query(...)`. Agent Reads/Greps the reference and Edits `page.html` opportunistically.
+   2. If `config.bento`: write `bento-tokens.css`, `bento.css`, `bento-reference.md` into `v{N}` (agent's `cwd`).
+   3. Run `query({ systemPrompt: config.systemPrompt, ... })`. The Bento addendum was already baked into `config.systemPrompt` by `startRemixJob`. Agent Reads/Greps the reference (via relative paths) and Edits `page.html` opportunistically.
 7. **Post-edit injection step (new, Bento-only):**
    - Read modified `page.html`.
    - Build injection string:
