@@ -90,6 +90,15 @@ function showSection(name) {
   }
 }
 
+// Route blob URLs through the backend preview proxy so Chrome renders the
+// HTML inline instead of downloading it. Falls back to the raw blob URL if
+// the backend isn't configured.
+function buildPreviewUrl(blobUrl) {
+  const base = currentSettings?.vercelUrl;
+  if (!base || !blobUrl) return blobUrl;
+  return `${base.replace(/\/$/, '')}/api/preview?url=${encodeURIComponent(blobUrl)}`;
+}
+
 function slugFromUrl(url) {
   try {
     const u = new URL(url);
@@ -458,7 +467,7 @@ async function loadFullHistory() {
     header.appendChild(date);
     card.appendChild(header);
 
-    // Snapshot actions: Download + Copy link
+    // Snapshot actions: Download + Preview
     if (s.blobUrl) {
       const actions = document.createElement('div');
       actions.className = 'history-snapshot-actions';
@@ -471,15 +480,13 @@ async function loadFullHistory() {
       });
       actions.appendChild(dlBtn);
 
-      const copyBtn = document.createElement('button');
-      copyBtn.className = 'version-btn';
-      copyBtn.textContent = 'Copy link';
-      copyBtn.addEventListener('click', () => {
-        navigator.clipboard.writeText(s.blobUrl);
-        copyBtn.textContent = 'Copied!';
-        setTimeout(() => { copyBtn.textContent = 'Copy link'; }, 1500);
+      const previewBtn = document.createElement('button');
+      previewBtn.className = 'version-btn';
+      previewBtn.textContent = 'Preview';
+      previewBtn.addEventListener('click', () => {
+        chrome.tabs.create({ url: buildPreviewUrl(s.blobUrl) });
       });
-      actions.appendChild(copyBtn);
+      actions.appendChild(previewBtn);
 
       card.appendChild(actions);
     }
@@ -534,15 +541,13 @@ async function loadFullHistory() {
             });
             vActions.appendChild(vDl);
 
-            const vCopy = document.createElement('button');
-            vCopy.className = 'version-btn';
-            vCopy.textContent = 'Copy link';
-            vCopy.addEventListener('click', () => {
-              navigator.clipboard.writeText(v.blobUrl);
-              vCopy.textContent = 'Copied!';
-              setTimeout(() => { vCopy.textContent = 'Copy link'; }, 1500);
+            const vPreview = document.createElement('button');
+            vPreview.className = 'version-btn';
+            vPreview.textContent = 'Preview';
+            vPreview.addEventListener('click', () => {
+              chrome.tabs.create({ url: buildPreviewUrl(v.blobUrl) });
             });
-            vActions.appendChild(vCopy);
+            vActions.appendChild(vPreview);
 
             const vSpec = document.createElement('button');
             vSpec.className = 'version-btn';
@@ -641,7 +646,7 @@ async function loadSnapshotWorkspace(snapshotId, snapshotData) {
   snapshotTitle.textContent = snapshotData.snapshotName;
   snapshotMeta.textContent = new Date(snapshotData.createdAt).toLocaleString();
 
-  // Download + copy link
+  // Download + preview
   currentBlobUrl = snapshotData.blobUrl || null;
   if (snapshotData.blobUrl) {
     downloadSnapshotBtn.hidden = false;
@@ -781,9 +786,7 @@ document.getElementById('open-options-card').addEventListener('click', () => {
 });
 
 copyPreviewBtn.addEventListener('click', () => {
-  if (currentBlobUrl) navigator.clipboard.writeText(currentBlobUrl);
-  copyPreviewBtn.textContent = 'Copied!';
-  setTimeout(() => { copyPreviewBtn.textContent = 'Copy link'; }, 1500);
+  if (currentBlobUrl) chrome.tabs.create({ url: buildPreviewUrl(currentBlobUrl) });
 });
 
 // Save to repo on demand
