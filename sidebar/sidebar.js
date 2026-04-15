@@ -37,6 +37,7 @@ const resultUrl = document.getElementById('result-url');
 const remixSection = document.getElementById('remix-section');
 const remixPrompt = document.getElementById('remix-prompt');
 const remixCount = document.getElementById('remix-count');
+const remixUseBento = document.getElementById('remix-use-bento');
 const remixBtn = document.getElementById('remix-btn');
 const remixStatus = document.getElementById('remix-status');
 const remixTurns = document.getElementById('remix-turns');
@@ -660,6 +661,10 @@ async function init() {
   const settings = result[STORAGE_KEY];
   currentSettings = settings;
 
+  // useBento toggle: default on, respect explicit false.
+  const useBentoStored = settings?.useBento;
+  remixUseBento.checked = useBentoStored !== false;
+
   hasVercelBackend = !!(settings?.vercelUrl && settings?.vercelApiKey);
   hasRepoCreds = checkRepoCreds(settings);
 
@@ -1006,6 +1011,7 @@ remixBtn.addEventListener('click', async () => {
     const msg = { action, prompt, count, snapshotId: currentSnapshotId };
     if (remixSourceVersionId) msg.versionId = remixSourceVersionId;
     if (uploadedRefs.length) msg.referenceImages = uploadedRefs;
+    msg.useBento = remixUseBento.checked;
 
     const response = await chrome.runtime.sendMessage(msg);
 
@@ -1026,6 +1032,14 @@ remixBtn.addEventListener('click', async () => {
   } finally {
     remixBtn.disabled = false;
   }
+});
+
+// ── Use Bento toggle persistence ───────────────────────────────────────
+
+remixUseBento.addEventListener('change', async () => {
+  const next = { ...(currentSettings || {}), useBento: remixUseBento.checked };
+  await chrome.storage.sync.set({ [STORAGE_KEY]: next });
+  currentSettings = next;
 });
 
 // ── Reference image input wiring ──────────────────────────────────────
