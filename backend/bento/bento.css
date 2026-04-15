@@ -1,0 +1,6 @@
+/* Bento component class rules.
+ * Every selector is scoped to .bento-* — no bare-tag or html/body rules,
+ * so these styles never leak onto the snapshot's original page.
+ * Built on top of bento-tokens.css (no raw hex, no magic numbers).
+ * Populated in Task 3.
+ */

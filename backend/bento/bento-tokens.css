@@ -1,0 +1,10 @@
+/* Bento design tokens.
+ * Hand-authored mirror of NinjaCat's Bento design system.
+ * Every variable is prefixed --bento-* to avoid collisions with the
+ * snapshot's original page. Referenced by bento.css and, at runtime,
+ * injected on :root in the final remix HTML.
+ * Source: NinjaCat Bento UI (GitLab @ninja-cat/bento-ui)
+ */
+:root {
+  /* Populated in Task 2. */
+}
