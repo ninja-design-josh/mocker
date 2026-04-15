@@ -1,7 +1,8 @@
 {
   "functions": {
     "api/remix.ts": {
-      "maxDuration": 60
+      "maxDuration": 60,
+      "includeFiles": "bento/**"
     },
     "api/remix-status.ts": {
       "maxDuration": 60

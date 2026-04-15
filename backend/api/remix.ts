@@ -1,7 +1,29 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { readFileSync, existsSync } from 'node:fs';
+import { join } from 'node:path';
 import { validateAuth } from '../lib/auth.js';
 import { startRemixJob } from '../lib/agent.js';
-import type { RemixRequest } from '../lib/types.js';
+import type { RemixRequest, BentoReference } from '../lib/types.js';
+
+const BENTO_DIR = join(process.cwd(), 'bento');
+
+function loadBentoReference(): BentoReference {
+  const tokensPath = join(BENTO_DIR, 'bento-tokens.css');
+  const componentsPath = join(BENTO_DIR, 'bento.css');
+  const referencePath = join(BENTO_DIR, 'bento-reference.md');
+
+  for (const p of [tokensPath, componentsPath, referencePath]) {
+    if (!existsSync(p)) {
+      throw new Error(`Bento reference file missing at ${p}`);
+    }
+  }
+
+  return {
+    tokensCss: readFileSync(tokensPath, 'utf-8'),
+    componentsCss: readFileSync(componentsPath, 'utf-8'),
+    referenceMd: readFileSync(referencePath, 'utf-8'),
+  };
+}
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
@@ -14,7 +36,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     const body = req.body as RemixRequest;
-    const { prompt, count, snapshotName, model, referenceImages } = body;
+    const { prompt, count, snapshotName, model, referenceImages, useBento } = body;
 
     if (!prompt || !count) {
       return res.status(400).json({ error: 'Missing prompt or count' });
@@ -38,6 +60,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
     }
 
+    let bento;
+    if (useBento) {
+      try {
+        bento = loadBentoReference();
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'unknown';
+        return res.status(500).json({
+          error: `Bento reference unavailable; redeploy or disable Bento toggle (${message})`,
+        });
+      }
+    }
+
     const jobId = await startRemixJob({
       snapshotBlobUrl: body.snapshotBlobId,
       dataUriMapBlobUrl: body.dataUriMapBlobId,
@@ -46,6 +80,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       count,
       snapshotName,
       referenceImages,
+      bento,
     });
 
     res.json({ jobId });
