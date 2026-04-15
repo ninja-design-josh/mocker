@@ -19,9 +19,11 @@ There are no tests or linters configured.
 "Deploy" means commit, push to GitHub, and deploy the backend:
 ```
 git add -A && git commit -m "..." && git push
-cd backend && vercel --prod
+vercel --prod --yes
 ```
-The Vercel project is `mocker-backend` (production alias: `mocker-backend-ninjacat-ui.vercel.app`; `mocker-backend-git-main-ninjacat-ui.vercel.app` also tracks `main`). Deploy from the `backend/` directory — `.vercel/project.json` lives there. GitHub pushes also trigger auto-deploys via the Git integration, which is the most reliable path since deployments are SSO-protected.
+Run `vercel` from the **repo root**, not from `backend/`. The `mocker-backend` Vercel project has its dashboard "Root Directory" set to `backend`, so the CLI expects to be run from the parent directory. The project link lives at repo-root `.vercel/project.json`. Running `vercel` from inside `backend/` will fail with a doubled-path error (`backend/backend not found`); running it from the repo root without a linked `.vercel/project.json` will silently create a stray project — don't let either happen.
+
+The Vercel project is `mocker-backend` (production alias: `mocker-backend-ninjacat-ui.vercel.app`; `mocker-backend-git-main-ninjacat-ui.vercel.app` also tracks `main`). GitHub pushes also trigger auto-deploys via the Git integration, which is the most reliable path since deployments are SSO-protected.
 
 ## Architecture
 
