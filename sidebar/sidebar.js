@@ -1,4 +1,8 @@
+import { uploadImageToBlob } from '../lib/utils.js';
+
 const STORAGE_KEY = 'mocker_settings';
+const MAX_REFERENCE_IMAGES = 10;
+const MAX_REFERENCE_IMAGE_BYTES = 5 * 1024 * 1024; // 5 MB — Claude's per-image limit
 
 const sections = {
   noConfig: document.getElementById('no-config'),
@@ -47,6 +51,17 @@ const historyEmpty = document.getElementById('history-empty');
 const snapshotTitle = document.getElementById('snapshot-title');
 const snapshotMeta = document.getElementById('snapshot-meta');
 
+// Reference image elements
+const remixRefsThumbs = document.getElementById('remix-refs-thumbs');
+const remixRefsInput = document.getElementById('remix-refs-input');
+const remixAddRefsBtn = document.getElementById('remix-add-refs');
+const remixRefsCount = document.getElementById('remix-refs-count');
+const remixDropOverlay = document.getElementById('remix-drop-overlay');
+const lightboxEl = document.getElementById('image-lightbox');
+const lightboxImg = document.getElementById('image-lightbox-img');
+const lightboxCaption = document.getElementById('image-lightbox-caption');
+const lightboxClose = document.getElementById('image-lightbox-close');
+
 // Current workspace state
 let currentSnapshotId = null;
 let remixSourceVersionId = null; // null = remix from original
@@ -55,6 +70,12 @@ let hasRepoCreds = false;
 let currentBlobUrl = null;
 let activeTab = 'capture'; // 'capture' or 'history'
 let lastCaptureSection = 'captureForm'; // remember which capture section was showing
+
+// Reference image state: items = [{ id, name, mediaType, previewUrl, url?, uploading, error? }]
+// Only items with `url` set are sent to the backend.
+let referenceImages = [];
+let refImageIdCounter = 0;
+let currentSettings = null; // cached from init() so upload helpers have vercelUrl/apiKey
 
 // Capture-flow sections (everything except history)
 const captureSections = ['noConfig', 'noTab', 'captureForm', 'progress', 'result', 'error'];
@@ -243,6 +264,7 @@ function renderVersionTree(versions) {
 
       info.appendChild(label);
       info.appendChild(prompt);
+      const refExpand = buildVersionRefBadge(v, info);
       info.appendChild(time);
 
       const actions = document.createElement('div');
@@ -321,6 +343,10 @@ function renderVersionTree(versions) {
       row.appendChild(info);
       row.appendChild(actions);
       versionTree.appendChild(row);
+      if (refExpand) {
+        refExpand.style.paddingLeft = `${depth * 16 + 16}px`;
+        versionTree.appendChild(refExpand);
+      }
 
       // Render children recursively
       renderSubtree(v.id, depth + 1);
@@ -493,6 +519,7 @@ async function loadFullHistory() {
 
           info.appendChild(label);
           info.appendChild(prompt);
+          const vRefExpand = buildVersionRefBadge(v, info);
           info.appendChild(time);
 
           const vActions = document.createElement('div');
@@ -585,6 +612,10 @@ async function loadFullHistory() {
           row.appendChild(info);
           row.appendChild(vActions);
           versionsContainer.appendChild(row);
+          if (vRefExpand) {
+            vRefExpand.style.paddingLeft = `${depth * 16 + 12}px`;
+            versionsContainer.appendChild(vRefExpand);
+          }
 
           renderHistorySubtree(v.id, depth + 1);
         }
@@ -646,6 +677,7 @@ async function loadSnapshotWorkspace(snapshotId, snapshotData) {
 async function init() {
   const result = await chrome.storage.sync.get(STORAGE_KEY);
   const settings = result[STORAGE_KEY];
+  currentSettings = settings;
 
   hasVercelBackend = !!(settings?.vercelUrl && settings?.vercelApiKey);
   hasRepoCreds = checkRepoCreds(settings);
@@ -790,6 +822,170 @@ newCaptureBtn.addEventListener('click', () => {
   refreshActiveTab();
 });
 
+// ── Reference images ──────────────────────────────────────────────────
+
+function resetReferenceImages() {
+  for (const img of referenceImages) {
+    if (img.previewUrl) URL.revokeObjectURL(img.previewUrl);
+  }
+  referenceImages = [];
+  renderReferenceThumbs();
+}
+
+function renderReferenceThumbs() {
+  if (!referenceImages.length) {
+    remixRefsThumbs.hidden = true;
+    remixRefsThumbs.innerHTML = '';
+    remixRefsCount.hidden = true;
+    return;
+  }
+  remixRefsThumbs.hidden = false;
+  remixRefsThumbs.innerHTML = '';
+  for (const img of referenceImages) {
+    const thumb = document.createElement('div');
+    thumb.className = 'remix-refs-thumb' + (img.uploading ? ' uploading' : '');
+    thumb.title = img.name + (img.uploading ? ' (uploading...)' : '');
+
+    const imgEl = document.createElement('img');
+    imgEl.src = img.previewUrl || img.url;
+    imgEl.alt = img.name;
+    imgEl.addEventListener('click', () => openLightbox(img.previewUrl || img.url, img.name));
+    thumb.appendChild(imgEl);
+
+    const removeBtn = document.createElement('button');
+    removeBtn.className = 'remix-refs-thumb-remove';
+    removeBtn.type = 'button';
+    removeBtn.textContent = '×';
+    removeBtn.setAttribute('aria-label', 'Remove ' + img.name);
+    removeBtn.addEventListener('click', () => removeReferenceImage(img.id));
+    thumb.appendChild(removeBtn);
+
+    remixRefsThumbs.appendChild(thumb);
+  }
+  remixRefsCount.hidden = false;
+  remixRefsCount.textContent = `${referenceImages.length} of ${MAX_REFERENCE_IMAGES}`;
+}
+
+function removeReferenceImage(id) {
+  const idx = referenceImages.findIndex(x => x.id === id);
+  if (idx < 0) return;
+  const img = referenceImages[idx];
+  if (img.previewUrl) URL.revokeObjectURL(img.previewUrl);
+  referenceImages.splice(idx, 1);
+  renderReferenceThumbs();
+}
+
+async function handleIncomingFiles(fileList) {
+  if (!currentSettings?.vercelUrl || !currentSettings?.vercelApiKey) {
+    showToast('Backend not configured — cannot upload reference images');
+    return;
+  }
+  const files = Array.from(fileList || []);
+  if (!files.length) return;
+
+  const remaining = MAX_REFERENCE_IMAGES - referenceImages.length;
+  if (remaining <= 0) {
+    showToast(`Maximum ${MAX_REFERENCE_IMAGES} reference images`);
+    return;
+  }
+
+  const toProcess = [];
+  for (const file of files) {
+    if (toProcess.length >= remaining) {
+      showToast(`Only ${remaining} more image${remaining === 1 ? '' : 's'} allowed — extras skipped`);
+      break;
+    }
+    if (!file.type || !file.type.startsWith('image/')) {
+      showToast(`Skipped "${file.name || 'file'}" — not an image`);
+      continue;
+    }
+    if (file.size > MAX_REFERENCE_IMAGE_BYTES) {
+      showToast(`Skipped "${file.name}" — over 5MB`);
+      continue;
+    }
+    toProcess.push(file);
+  }
+
+  // Add placeholders with local preview, then upload in parallel
+  const items = toProcess.map(file => ({
+    id: ++refImageIdCounter,
+    name: file.name || 'image',
+    mediaType: file.type,
+    previewUrl: URL.createObjectURL(file),
+    url: null,
+    uploading: true,
+    file,
+  }));
+  referenceImages.push(...items);
+  renderReferenceThumbs();
+
+  await Promise.all(items.map(async (item) => {
+    try {
+      const result = await uploadImageToBlob(item.file, currentSettings.vercelUrl, currentSettings.vercelApiKey);
+      item.url = result.url;
+      item.mediaType = result.mediaType;
+      item.name = result.name;
+    } catch (err) {
+      console.error('Image upload failed:', err);
+      showToast(`Upload failed for "${item.name}": ${err.message || err}`);
+      const idx = referenceImages.findIndex(x => x.id === item.id);
+      if (idx >= 0) {
+        if (referenceImages[idx].previewUrl) URL.revokeObjectURL(referenceImages[idx].previewUrl);
+        referenceImages.splice(idx, 1);
+      }
+    } finally {
+      item.uploading = false;
+      item.file = undefined;
+      renderReferenceThumbs();
+    }
+  }));
+}
+
+function openLightbox(src, caption) {
+  lightboxImg.src = src;
+  lightboxCaption.textContent = caption || '';
+  lightboxEl.hidden = false;
+}
+
+function closeLightbox() {
+  lightboxEl.hidden = true;
+  lightboxImg.src = '';
+}
+
+// Build an expandable thumbnail row for a persisted version's referenceImages.
+// Appends a badge to infoEl (click toggles visibility) and returns the row
+// the caller should insert after the version row, or null if no images.
+function buildVersionRefBadge(v, infoEl) {
+  const refs = v.referenceImages;
+  if (!refs || !refs.length) return null;
+
+  const badge = document.createElement('span');
+  badge.className = 'version-refs-badge';
+  badge.setAttribute('role', 'button');
+  badge.setAttribute('aria-label', `${refs.length} reference image${refs.length === 1 ? '' : 's'}`);
+  badge.innerHTML = `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>${refs.length}`;
+  badge.title = `${refs.length} reference image${refs.length === 1 ? '' : 's'}`;
+
+  const expandRow = document.createElement('div');
+  expandRow.className = 'version-refs-expand';
+  expandRow.hidden = true;
+  for (const r of refs) {
+    const thumb = document.createElement('div');
+    thumb.className = 'remix-refs-thumb';
+    const img = document.createElement('img');
+    img.src = r.url;
+    img.alt = r.name || '';
+    img.title = r.name || '';
+    img.addEventListener('click', (e) => { e.stopPropagation(); openLightbox(r.url, r.name); });
+    thumb.appendChild(img);
+    expandRow.appendChild(thumb);
+  }
+
+  badge.addEventListener('click', () => { expandRow.hidden = !expandRow.hidden; });
+  infoEl.appendChild(badge);
+  return expandRow;
+}
+
 // ── Remix ─────────────────────────────────────────────────────────────
 
 function resetRemixState() {
@@ -800,6 +996,7 @@ function resetRemixState() {
   remixStatus.className = 'remix-status';
   remixTurns.hidden = true;
   remixTurns.innerHTML = '';
+  resetReferenceImages();
 }
 
 remixBtn.addEventListener('click', async () => {
@@ -808,6 +1005,16 @@ remixBtn.addEventListener('click', async () => {
     remixPrompt.focus();
     return;
   }
+
+  // Block while any image is still uploading
+  if (referenceImages.some(x => x.uploading)) {
+    showToast('Wait for reference images to finish uploading');
+    return;
+  }
+
+  const uploadedRefs = referenceImages
+    .filter(x => x.url)
+    .map(x => ({ url: x.url, mediaType: x.mediaType, name: x.name }));
 
   const count = parseInt(remixCount.value, 10);
   remixBtn.disabled = true;
@@ -819,6 +1026,7 @@ remixBtn.addEventListener('click', async () => {
     const action = remixSourceVersionId ? 'remixFromVersion' : 'remixSnapshot';
     const msg = { action, prompt, count, snapshotId: currentSnapshotId };
     if (remixSourceVersionId) msg.versionId = remixSourceVersionId;
+    if (uploadedRefs.length) msg.referenceImages = uploadedRefs;
 
     const response = await chrome.runtime.sendMessage(msg);
 
@@ -828,6 +1036,9 @@ remixBtn.addEventListener('click', async () => {
 
     remixStatus.textContent = 'Done!';
 
+    // Clear attached references after a successful remix (no auto-carry-forward)
+    resetReferenceImages();
+
     // Refresh version tree to show new versions
     await refreshVersionTree();
   } catch (err) {
@@ -836,6 +1047,72 @@ remixBtn.addEventListener('click', async () => {
   } finally {
     remixBtn.disabled = false;
   }
+});
+
+// ── Reference image input wiring ──────────────────────────────────────
+
+remixAddRefsBtn.addEventListener('click', () => remixRefsInput.click());
+remixRefsInput.addEventListener('change', (e) => {
+  handleIncomingFiles(e.target.files);
+  e.target.value = ''; // allow re-picking the same file
+});
+
+// Paste images from clipboard while focused in the prompt textarea
+remixPrompt.addEventListener('paste', (e) => {
+  if (!e.clipboardData) return;
+  const files = [];
+  for (const item of e.clipboardData.items) {
+    if (item.kind === 'file' && item.type.startsWith('image/')) {
+      const file = item.getAsFile();
+      if (file) files.push(file);
+    }
+  }
+  if (files.length) {
+    e.preventDefault();
+    handleIncomingFiles(files);
+  }
+});
+
+// Drag-and-drop anywhere on the remix card
+(() => {
+  const card = document.getElementById('remix-section');
+  let dragCounter = 0;
+  const hasFiles = (e) => {
+    const types = e.dataTransfer?.types;
+    return types && Array.from(types).includes('Files');
+  };
+  card.addEventListener('dragenter', (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    dragCounter++;
+    remixDropOverlay.hidden = false;
+  });
+  card.addEventListener('dragover', (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+  });
+  card.addEventListener('dragleave', (e) => {
+    if (!hasFiles(e)) return;
+    dragCounter = Math.max(0, dragCounter - 1);
+    if (dragCounter === 0) remixDropOverlay.hidden = true;
+  });
+  card.addEventListener('drop', (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    dragCounter = 0;
+    remixDropOverlay.hidden = true;
+    handleIncomingFiles(e.dataTransfer.files);
+  });
+})();
+
+// Lightbox dismiss: close button, backdrop click, ESC key
+lightboxClose.addEventListener('click', closeLightbox);
+lightboxEl.addEventListener('click', (e) => {
+  if (e.target === lightboxEl) closeLightbox();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !lightboxEl.hidden) closeLightbox();
 });
 
 // Listen for remix progress updates

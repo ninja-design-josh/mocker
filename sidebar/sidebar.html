@@ -112,7 +112,7 @@
         </div>
 
         <!-- Remix card -->
-        <div class="card" id="remix-section" hidden>
+        <div class="card remix-card" id="remix-section" hidden>
           <div class="remix-source" id="remix-source">
             <span class="remix-source-label">Remixing from: <strong id="remix-source-name">Original</strong></span>
             <button id="clear-remix-source" class="remix-source-clear" hidden>x</button>
@@ -121,6 +121,23 @@
             <label for="remix-prompt">Describe changes</label>
             <textarea id="remix-prompt" rows="3" placeholder="e.g. Make it dark mode with a purple accent..."></textarea>
           </div>
+
+          <!-- Reference images -->
+          <div class="remix-refs">
+            <div class="remix-refs-header">
+              <label>Reference images <span class="remix-refs-hint">optional — drop, paste, or pick (max 10, 5MB each)</span></label>
+            </div>
+            <div id="remix-refs-thumbs" class="remix-refs-thumbs" hidden></div>
+            <div class="remix-refs-controls">
+              <button type="button" id="remix-add-refs" class="remix-refs-add">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                Add reference images
+              </button>
+              <span id="remix-refs-count" class="remix-refs-count" hidden></span>
+            </div>
+            <input type="file" id="remix-refs-input" accept="image/*" multiple hidden>
+          </div>
+
           <div class="remix-options">
             <div class="field field-inline">
               <label for="remix-count">Variations</label>
@@ -136,6 +153,11 @@
           </div>
           <div id="remix-status" class="remix-status" hidden></div>
           <div id="remix-turns" class="remix-turns" hidden></div>
+
+          <!-- Drop overlay shown while dragging files over the card -->
+          <div id="remix-drop-overlay" class="remix-drop-overlay" hidden>
+            <div class="remix-drop-overlay-inner">Drop images to attach</div>
+          </div>
         </div>
 
         <!-- Version tree -->
@@ -160,6 +182,13 @@
         <div id="history-list"></div>
         <div id="history-empty" class="history-empty" hidden>No snapshots yet</div>
       </div>
+    </div>
+
+    <!-- Lightbox for previewing reference images -->
+    <div id="image-lightbox" class="image-lightbox" hidden>
+      <button id="image-lightbox-close" class="image-lightbox-close" aria-label="Close">&times;</button>
+      <img id="image-lightbox-img" alt="">
+      <div id="image-lightbox-caption" class="image-lightbox-caption"></div>
     </div>
   </div>
   <script src="sidebar.js" type="module"></script>

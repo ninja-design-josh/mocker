@@ -1,3 +1,9 @@
+export interface ReferenceImage {
+  url: string;
+  mediaType: string;
+  name: string;
+}
+
 export interface RemixRequest {
   strippedHtml?: string;
   dataUriMap?: string[];
@@ -7,6 +13,7 @@ export interface RemixRequest {
   count: number;
   snapshotName: string;
   model?: string;
+  referenceImages?: ReferenceImage[];
 }
 
 export interface StoreRequest {

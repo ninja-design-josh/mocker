@@ -1,6 +1,6 @@
 import { commitSnapshot as gitlabCommit } from '../lib/gitlab-api.js';
 import { commitSnapshot as githubCommit } from '../lib/github-api.js';
-import { guessMimeType, arrayBufferToBase64 } from '../lib/utils.js';
+import { guessMimeType, arrayBufferToBase64, uploadToBlob } from '../lib/utils.js';
 
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
 
@@ -15,7 +15,7 @@ let activeContext = { snapshotId: null, versionId: null, html: null };
 
 function openMockerDb() {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open('mocker_data', 2);
+    const req = indexedDB.open('mocker_data', 3);
     req.onupgradeneeded = (e) => {
       const db = req.result;
       // Migrate from v1 if old store exists
@@ -34,6 +34,8 @@ function openMockerDb() {
           ver.createIndex('snapshotId_depth', ['snapshotId', 'depth']);
         }
       }
+      // v3: add referenceImages field to versions (no-op upgrade — additive, no new index)
+      // Existing version rows simply won't have the field, which is treated as "no references".
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
@@ -836,60 +838,6 @@ function sendRemixProgress(current, total, text, extra = {}) {
 }
 
 /**
- * Upload a blob directly to Vercel Blob storage via client upload.
- * Step 1: Get a client token from our backend.
- * Step 2: PUT directly to Vercel Blob (bypasses function body limits).
- */
-async function uploadToBlob(vercelUrl, vercelApiKey, pathname, blob) {
-  // Step 1: Get upload token
-  const tokenResp = await fetch(`${vercelUrl}/api/upload-token`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${vercelApiKey}`,
-    },
-    body: JSON.stringify({
-      type: 'blob.generate-client-token',
-      payload: {
-        pathname,
-        callbackUrl: `${vercelUrl}/api/upload-token`,
-      },
-    }),
-  });
-
-  if (!tokenResp.ok) {
-    const text = await tokenResp.text();
-    throw new Error(`Failed to get upload token: ${tokenResp.status} ${text}`);
-  }
-
-  const { clientToken } = await tokenResp.json();
-
-  // Step 2: Upload directly to Vercel Blob
-  const uploadResp = await fetch(
-    `https://blob.vercel-storage.com/${pathname}`,
-    {
-      method: 'PUT',
-      headers: {
-        'Authorization': `Bearer ${clientToken}`,
-        'x-content-type': blob.type,
-        'x-content-disposition': 'inline',
-        'x-add-random-suffix': '1',
-        'x-cache-control-max-age': '31536000',
-      },
-      body: blob,
-    }
-  );
-
-  if (!uploadResp.ok) {
-    const text = await uploadResp.text();
-    throw new Error(`Blob upload failed: ${uploadResp.status} ${text}`);
-  }
-
-  const result = await uploadResp.json();
-  return result.url;
-}
-
-/**
  * Remix via Vercel backend (Agent SDK).
  * Streams SSE from the backend and forwards progress to the sidebar.
  * sourceContext: { snapshotId, versionId?, html, snapshotName }
@@ -920,6 +868,8 @@ async function remixViaVercel(prompt, count, settings, sourceContext) {
   // Start remix job — returns immediately with a job ID
   sendRemixProgress(0, count, 'Starting remix job...');
 
+  const referenceImages = Array.isArray(sourceContext.referenceImages) ? sourceContext.referenceImages : [];
+
   const startResp = await fetch(`${vercelUrl}/api/remix`, {
     method: 'POST',
     headers: {
@@ -933,6 +883,7 @@ async function remixViaVercel(prompt, count, settings, sourceContext) {
       count,
       snapshotName,
       model: settings.remixModel || 'claude-sonnet-4-6',
+      referenceImages: referenceImages.length ? referenceImages : undefined,
     }),
   });
 
@@ -968,6 +919,7 @@ async function remixViaVercel(prompt, count, settings, sourceContext) {
       costUsd: null,
       repoUrl: r.repoUrl || null,
       depth,
+      referenceImages: referenceImages.length ? referenceImages : undefined,
       createdAt: Date.now(),
     });
     r.versionId = vid;
@@ -1075,7 +1027,7 @@ async function remixViaVercel(prompt, count, settings, sourceContext) {
  * Call Claude to generate remix variations via Vercel backend.
  * snapshotId passed explicitly from sidebar (survives SW restarts).
  */
-async function remixSnapshot(snapshotId, prompt, count) {
+async function remixSnapshot(snapshotId, prompt, count, referenceImages) {
   const sid = snapshotId || activeContext.snapshotId;
   if (!sid) {
     throw new Error('No snapshot captured yet. Capture a snapshot first.');
@@ -1107,6 +1059,7 @@ async function remixSnapshot(snapshotId, prompt, count) {
     html,
     snapshotName: snapshot.snapshotName || 'snapshot',
     branchName: snapshot.branchName,
+    referenceImages,
   };
 
   return remixViaVercel(prompt, count, settings, sourceContext);
@@ -1116,7 +1069,7 @@ async function remixSnapshot(snapshotId, prompt, count) {
  * Remix from a specific version (re-remix).
  * Fetches HTML from the version's blobUrl.
  */
-async function remixFromVersion(versionId, prompt, count) {
+async function remixFromVersion(versionId, prompt, count, referenceImages) {
   const version = await getVersion(versionId);
   if (!version) throw new Error('Version not found.');
 
@@ -1141,6 +1094,7 @@ async function remixFromVersion(versionId, prompt, count) {
     html,
     snapshotName: snapshot?.snapshotName || 'snapshot',
     branchName: snapshot?.branchName,
+    referenceImages,
   };
 
   return remixViaVercel(prompt, count, settings, sourceContext);
@@ -1190,14 +1144,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.action === 'remixSnapshot') {
-    remixSnapshot(msg.snapshotId, msg.prompt, msg.count)
+    remixSnapshot(msg.snapshotId, msg.prompt, msg.count, msg.referenceImages)
       .then(data => sendResponse({ results: data.results, logUrl: data.logUrl, versionIds: data.versionIds }))
       .catch(err => sendResponse({ error: err.message }));
     return true;
   }
 
   if (msg.action === 'remixFromVersion') {
-    remixFromVersion(msg.versionId, msg.prompt, msg.count)
+    remixFromVersion(msg.versionId, msg.prompt, msg.count, msg.referenceImages)
       .then(data => sendResponse({ results: data.results, logUrl: data.logUrl, versionIds: data.versionIds }))
       .catch(err => sendResponse({ error: err.message }));
     return true;

@@ -14,7 +14,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     const body = req.body as RemixRequest;
-    const { prompt, count, snapshotName, model } = body;
+    const { prompt, count, snapshotName, model, referenceImages } = body;
 
     if (!prompt || !count) {
       return res.status(400).json({ error: 'Missing prompt or count' });
@@ -24,6 +24,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(400).json({ error: 'Missing snapshot blob URLs' });
     }
 
+    if (referenceImages) {
+      if (!Array.isArray(referenceImages)) {
+        return res.status(400).json({ error: 'referenceImages must be an array' });
+      }
+      if (referenceImages.length > 10) {
+        return res.status(400).json({ error: 'Maximum 10 reference images per remix' });
+      }
+      for (const img of referenceImages) {
+        if (!img || typeof img.url !== 'string' || typeof img.mediaType !== 'string') {
+          return res.status(400).json({ error: 'Each reference image requires url and mediaType' });
+        }
+      }
+    }
+
     const jobId = await startRemixJob({
       snapshotBlobUrl: body.snapshotBlobId,
       dataUriMapBlobUrl: body.dataUriMapBlobId,
@@ -31,6 +45,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       model: model || 'claude-sonnet-4-6',
       count,
       snapshotName,
+      referenceImages,
     });
 
     res.json({ jobId });

@@ -1,4 +1,5 @@
 import { Sandbox } from '@vercel/sandbox';
+import type { ReferenceImage } from './types.js';
 
 const SYSTEM_PROMPT = `You are an expert web developer modifying an HTML page.
 You have access to a single file: page.html in the current directory.
@@ -19,7 +20,13 @@ Snapshot rules — the file is a static HTML snapshot:
 - Do NOT add external resource references (CDN links, analytics, tracking scripts)
 - Do NOT add <link rel="preconnect">, <link rel="dns-prefetch">, or tracking pixels
 - Keep the file self-contained — prefer inline styles over external stylesheet links
-- If restructuring, remove any leftover empty containers or dead markup`;
+- If restructuring, remove any leftover empty containers or dead markup
+
+Reference images:
+- You may be provided with reference images showing the intended visual design and/or different UI states (e.g., empty, filled, error).
+- Treat them as strong visual guidance: match layout, typography, spacing, color palette, component style, and behavior conveyed by the states.
+- Order of the images is not meaningful — they are a set, not a sequence.
+- The images are external references, not assets to embed in page.html.`;
 
 // This script runs inside the sandbox microVM — fully self-contained.
 // It downloads source files from Blob, installs the Agent SDK, runs the agent
@@ -68,8 +75,25 @@ try {
     let turnNum = 0;
     let costUsd = 0;
 
+    const sessionId = 'v' + i + '-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+    const refImages = Array.isArray(config.referenceImages) ? config.referenceImages : [];
+    const userContent = [
+      { type: 'text', text: 'Modify page.html as follows: ' + config.prompt }
+    ];
+    for (const img of refImages) {
+      userContent.push({ type: 'image', source: { type: 'url', url: img.url } });
+    }
+    async function* userMessages() {
+      yield {
+        type: 'user',
+        session_id: sessionId,
+        parent_tool_use_id: null,
+        message: { role: 'user', content: userContent },
+      };
+    }
+
     for await (const message of query({
-      prompt: 'Modify page.html as follows: ' + config.prompt,
+      prompt: userMessages(),
       options: {
         cwd: dir,
         systemPrompt: config.systemPrompt,
@@ -172,6 +196,7 @@ export async function startRemixJob(opts: {
   model: string;
   count: number;
   snapshotName: string;
+  referenceImages?: ReferenceImage[];
 }): Promise<string> {
   const sandbox = await Sandbox.create({
     runtime: 'node22',
@@ -191,6 +216,7 @@ export async function startRemixJob(opts: {
     model: opts.model,
     count: opts.count,
     snapshotName: opts.snapshotName,
+    referenceImages: opts.referenceImages || [],
   };
 
   await sandbox.writeFiles([
