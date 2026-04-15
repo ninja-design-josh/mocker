@@ -14,6 +14,16 @@ export interface RemixRequest {
   snapshotName: string;
   model?: string;
   referenceImages?: ReferenceImage[];
+  /** When true, the backend loads backend/bento/* and the agent is
+   *  instructed to produce Bento-styled HTML. Defaults to false. */
+  useBento?: boolean;
+}
+
+/** Bento reference material shipped into the sandbox when useBento=true. */
+export interface BentoReference {
+  tokensCss: string;
+  componentsCss: string;
+  referenceMd: string;
 }
 
 export interface StoreRequest {
