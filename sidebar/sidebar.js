@@ -222,9 +222,33 @@ function labelVersions(versions) {
   roots.forEach(labelChildren);
 }
 
-function formatTime(ts) {
-  const d = new Date(ts);
-  return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+function formatRelativeTime(ts) {
+  const diff = Date.now() - ts;
+  const seconds = Math.floor(diff / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+
+  if (seconds < 60) return 'just now';
+  if (minutes < 60) return minutes === 1 ? '1 min ago' : `${minutes} mins ago`;
+  if (hours < 24) return hours === 1 ? '1 hour ago' : `${hours} hours ago`;
+  if (days === 1) return 'Yesterday';
+  if (days < 7) {
+    return new Date(ts).toLocaleDateString([], { weekday: 'long' });
+  }
+  if (days < 14) return 'Last week';
+  if (days < 30) {
+    const weeks = Math.floor(days / 7);
+    return `${weeks} weeks ago`;
+  }
+  if (days < 60) return 'Last month';
+  if (days < 365) {
+    const months = Math.floor(days / 30);
+    return `${months} months ago`;
+  }
+  if (days < 730) return 'Last year';
+  const years = Math.floor(days / 365);
+  return `${years} years ago`;
 }
 
 function truncate(str, len) {
@@ -269,7 +293,7 @@ function renderVersionTree(versions) {
 
       const time = document.createElement('span');
       time.className = 'version-time';
-      time.textContent = formatTime(v.createdAt);
+      time.textContent = formatRelativeTime(v.createdAt);
 
       info.appendChild(label);
       info.appendChild(prompt);
@@ -284,7 +308,8 @@ function renderVersionTree(versions) {
         dlBtn.className = 'version-btn';
         dlBtn.textContent = 'Download';
         dlBtn.addEventListener('click', () => {
-          downloadFromUrl(v.blobUrl, `${v.label}.html`);
+          const snapName = snapshotTitle.textContent || 'snapshot';
+          downloadFromUrl(v.blobUrl, `${snapName} ${v.label}.html`);
         });
         actions.appendChild(dlBtn);
 
@@ -314,31 +339,13 @@ function renderVersionTree(versions) {
         });
         actions.appendChild(specBtn);
 
-        const pubBtn = document.createElement('button');
-        pubBtn.className = 'version-btn';
-        pubBtn.textContent = 'Publish';
-        pubBtn.addEventListener('click', async () => {
-          pubBtn.disabled = true;
-          pubBtn.textContent = 'Publishing...';
-          try {
-            const resp = await chrome.runtime.sendMessage({
-              action: 'publishVersion',
-              versionId: v.id,
-              versionLabel: v.label,
-            });
-            if (resp.error) throw new Error(resp.error);
-            await navigator.clipboard.writeText(resp.url);
-            pubBtn.textContent = 'Copied!';
-            setTimeout(() => { pubBtn.textContent = 'Publish'; }, 2000);
-          } catch (err) {
-            console.error('Publish failed:', err);
-            showToast(err.message || 'Publish failed');
-            pubBtn.textContent = 'Publish';
-          } finally {
-            pubBtn.disabled = false;
-          }
+        const previewBtn = document.createElement('button');
+        previewBtn.className = 'version-btn';
+        previewBtn.textContent = 'Preview';
+        previewBtn.addEventListener('click', () => {
+          chrome.tabs.create({ url: buildPreviewUrl(v.blobUrl) });
         });
-        actions.appendChild(pubBtn);
+        actions.appendChild(previewBtn);
       }
 
       const remixThisBtn = document.createElement('button');
@@ -430,11 +437,6 @@ tabHistory.addEventListener('click', () => switchTab('history'));
 
 // ── Full history view ─────────────────────────────────────────────────
 
-function formatDate(ts) {
-  const d = new Date(ts);
-  return d.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
-}
-
 async function loadFullHistory() {
   const resp = await chrome.runtime.sendMessage({ action: 'getSnapshotsWithVersions' });
   if (!resp.snapshots) return;
@@ -461,7 +463,7 @@ async function loadFullHistory() {
 
     const date = document.createElement('span');
     date.className = 'history-snapshot-date';
-    date.textContent = formatDate(s.createdAt);
+    date.textContent = formatRelativeTime(s.createdAt);
 
     header.appendChild(name);
     header.appendChild(date);
@@ -522,7 +524,7 @@ async function loadFullHistory() {
 
           const time = document.createElement('span');
           time.className = 'version-time';
-          time.textContent = formatTime(v.createdAt);
+          time.textContent = formatRelativeTime(v.createdAt);
 
           info.appendChild(label);
           info.appendChild(prompt);
@@ -537,7 +539,7 @@ async function loadFullHistory() {
             vDl.className = 'version-btn';
             vDl.textContent = 'Download';
             vDl.addEventListener('click', () => {
-              downloadFromUrl(v.blobUrl, `${v.label}.html`);
+              downloadFromUrl(v.blobUrl, `${s.snapshotName} ${v.label}.html`);
             });
             vActions.appendChild(vDl);
 
@@ -573,32 +575,6 @@ async function loadFullHistory() {
               }
             });
             vActions.appendChild(vSpec);
-
-            const vPub = document.createElement('button');
-            vPub.className = 'version-btn';
-            vPub.textContent = 'Publish';
-            vPub.addEventListener('click', async () => {
-              vPub.disabled = true;
-              vPub.textContent = 'Publishing...';
-              try {
-                const resp = await chrome.runtime.sendMessage({
-                  action: 'publishVersion',
-                  versionId: v.id,
-                  versionLabel: v.label,
-                });
-                if (resp.error) throw new Error(resp.error);
-                await navigator.clipboard.writeText(resp.url);
-                vPub.textContent = 'Copied!';
-                setTimeout(() => { vPub.textContent = 'Publish'; }, 2000);
-              } catch (err) {
-                console.error('Publish failed:', err);
-                showToast(err.message || 'Publish failed');
-                vPub.textContent = 'Publish';
-              } finally {
-                vPub.disabled = false;
-              }
-            });
-            vActions.appendChild(vPub);
           }
 
           const remixThisBtn = document.createElement('button');
