@@ -1,10 +1,174 @@
 /* Bento design tokens.
  * Hand-authored mirror of NinjaCat's Bento design system.
- * Every variable is prefixed --bento-* to avoid collisions with the
- * snapshot's original page. Referenced by bento.css and, at runtime,
- * injected on :root in the final remix HTML.
- * Source: NinjaCat Bento UI (GitLab @ninja-cat/bento-ui)
+ * Values sourced from bento-ui's tailwind.config.js, styles/index.css,
+ * and component templates. Every variable is prefixed --bento-* to avoid
+ * collisions with the snapshot's original page. Referenced by bento.css
+ * and, at runtime, injected on :root in the final remix HTML.
+ * Source: NinjaCat Bento UI (@ninja-cat/bento-ui).
  */
 :root {
-  /* Populated in Task 2. */
+  /* ── Color: brand ─────────────────────────────────────────── */
+  --bento-color-brand-teal: #179494;
+  --bento-color-brand-mauve: #986CC1;
+  --bento-color-brand-indigo: #36368F;
+  --bento-color-brand-navy: #140F4C;
+  --bento-color-brand-aqua: #00EEF8;
+  --bento-color-brand-lime: #96FD1A;
+
+  /* ── Color: blue (primary accent) ────────────────────────── */
+  --bento-color-blue-2: #EFF4FE;
+  --bento-color-blue-5: #E5EDFF;
+  --bento-color-blue-10: #CCDBFC;
+  --bento-color-blue-20: #99B5FA;
+  --bento-color-blue-50: #6691FA;
+  --bento-color-blue-100: #1E66F0;
+  --bento-color-blue-dark: #1A5AD7;
+
+  /* ── Color: neutrals (grey scale) ────────────────────────── */
+  --bento-color-grey-0: #FFFFFF;
+  --bento-color-grey-2: #F9FAFB;
+  --bento-color-grey-5: #F2F4F7;
+  --bento-color-grey-10: #E7EAEF;
+  --bento-color-grey-20: #D5DAE1;
+  --bento-color-grey-30: #BDC2CC;
+  --bento-color-grey-40: #A8AEBA;
+  --bento-color-grey-50: #939AA7;
+  --bento-color-grey-60: #7E8694;
+  --bento-color-grey-70: #697280;
+  --bento-color-grey-80: #545D6B;
+  --bento-color-grey-90: #424A58;
+  --bento-color-grey-100: #2D3540;
+  --bento-color-grey-110: #202832;
+  --bento-color-grey-120: #151C25;
+  --bento-color-grey-130: #000000;
+
+  /* ── Color: status ───────────────────────────────────────── */
+  --bento-color-success-5: #F4FAF4;
+  --bento-color-success-50: #8BCA8E;
+  --bento-color-success-100: #239B2A;
+  --bento-color-warning-5: #FFFBF5;
+  --bento-color-warning-10: #FEF6E9;
+  --bento-color-warning-50: #FAD08C;
+  --bento-color-warning-100: #F5A523;
+  --bento-color-warning-dark: #D27412;
+  --bento-color-danger-5: #F8EDF1;
+  --bento-color-danger-50: #F27DA8;
+  --bento-color-danger-100: #EB0057;
+  --bento-color-danger-hover: #D30050;
+  --bento-color-danger-active: #BE0047;
+  --bento-color-info-5: #EFF4FE;
+  --bento-color-info-100: #1E66F0;
+  --bento-color-purple-5: #F3EEF9;
+  --bento-color-purple-50: #BA8CF9;
+  --bento-color-purple-100: #7C1EFA;
+  --bento-color-purple-dark: #450082;
+
+  /* Convenience aliases used by bento.css */
+  --bento-color-success: var(--bento-color-success-100);
+  --bento-color-warning: var(--bento-color-warning-100);
+  --bento-color-danger: var(--bento-color-danger-100);
+  --bento-color-info: var(--bento-color-info-100);
+
+  /* ── Semantic roles ──────────────────────────────────────── */
+  --bento-fg-default: var(--bento-color-grey-100);
+  --bento-fg-muted: var(--bento-color-grey-70);
+  --bento-fg-subtle: var(--bento-color-grey-60);
+  --bento-fg-inverse: var(--bento-color-grey-0);
+  --bento-fg-on-accent: var(--bento-color-grey-0);
+  --bento-fg-link: var(--bento-color-blue-100);
+  --bento-fg-error: var(--bento-color-danger-100);
+
+  --bento-bg-surface: var(--bento-color-grey-0);
+  --bento-bg-surface-raised: var(--bento-color-grey-0);
+  --bento-bg-subtle: var(--bento-color-grey-5);
+  --bento-bg-muted: var(--bento-color-grey-10);
+  --bento-bg-accent: var(--bento-color-blue-100);
+  --bento-bg-accent-soft: var(--bento-color-blue-5);
+  --bento-bg-disabled: var(--bento-color-grey-10);
+
+  --bento-border-default: var(--bento-color-grey-30);
+  --bento-border-subtle: var(--bento-color-grey-20);
+  --bento-border-strong: var(--bento-color-grey-60);
+  --bento-border-accent: var(--bento-color-blue-100);
+  --bento-border-error: var(--bento-color-danger-100);
+
+  /* ── Typography: families ────────────────────────────────── */
+  --bento-font-display: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --bento-font-body: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --bento-font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+
+  /* ── Typography: scale (Bento overrides) ─────────────────── */
+  --bento-text-xs: 12px;          --bento-leading-xs: 16px;
+  --bento-text-sm: 13px;          --bento-leading-sm: 16px;
+  --bento-text-base: 14px;        --bento-leading-base: 18px;
+  --bento-text-lg: 20px;          --bento-leading-lg: 28px;
+  --bento-text-xl: 24px;          --bento-leading-xl: 32px;
+  --bento-text-2xl: 24px;         --bento-leading-2xl: 30px;
+  --bento-text-3xl: 34px;         --bento-leading-3xl: 40px;
+
+  /* Heading scale matches styles/index.css @layer base */
+  --bento-text-h1: 34px;          --bento-leading-h1: 40px;          --bento-tracking-h1: 0.5px;
+  --bento-text-h2: 24px;          --bento-leading-h2: 30px;          --bento-tracking-h2: 0.3px;
+  --bento-text-h3: 18px;          --bento-leading-h3: 24px;          --bento-tracking-h3: 0.3px;
+  --bento-text-h4: 14px;          --bento-leading-h4: 24px;          --bento-tracking-h4: 0.5px;
+  --bento-text-label: 13px;       --bento-leading-label: 16px;
+
+  /* ── Typography: weights ─────────────────────────────────── */
+  --bento-font-weight-regular: 400;
+  --bento-font-weight-medium: 500;
+  --bento-font-weight-semibold: 600;
+  --bento-font-weight-bold: 700;
+
+  /* ── Spacing (Tailwind default scale, 0.25rem = 4px) ─────── */
+  --bento-space-0: 0;
+  --bento-space-0_5: 2px;
+  --bento-space-1: 4px;
+  --bento-space-1_5: 6px;
+  --bento-space-2: 8px;
+  --bento-space-2_5: 10px;
+  --bento-space-3: 12px;
+  --bento-space-4: 16px;
+  --bento-space-5: 20px;
+  --bento-space-6: 24px;
+  --bento-space-8: 32px;
+  --bento-space-10: 40px;
+  --bento-space-12: 48px;
+  --bento-space-16: 64px;
+
+  /* ── Control dimensions ──────────────────────────────────── */
+  --bento-control-height-sm: 32px;   /* h-8 */
+  --bento-control-height-md: 44px;   /* h-11 */
+  --bento-control-padding-x: 20px;   /* btn px-5 */
+  --bento-control-padding-x-sm: 12px;/* btn-sm px-3 */
+
+  /* ── Radii ───────────────────────────────────────────────── */
+  --bento-radius-sm: 3px;
+  --bento-radius-md: 5px;         /* Bento's Tailwind default */
+  --bento-radius-lg: 8px;         /* Tailwind's rounded-lg */
+  --bento-radius-xl: 12px;
+  --bento-radius-pill: 15px;      /* Pill.vue */
+  --bento-radius-full: 9999px;
+
+  /* ── Borders ─────────────────────────────────────────────── */
+  --bento-border-width-sm: 1px;
+  --bento-border-width-md: 2px;
+
+  /* ── Shadows (used sparingly — Bento prefers borders) ───── */
+  --bento-shadow-sm: 0 1px 2px rgba(21, 28, 37, 0.05);
+  --bento-shadow-md: 0 4px 12px rgba(21, 28, 37, 0.08);
+  --bento-shadow-lg: 0 12px 32px rgba(21, 28, 37, 0.12);
+
+  /* ── Motion ──────────────────────────────────────────────── */
+  --bento-duration-fast: 150ms;
+  --bento-duration-base: 200ms;
+  --bento-duration-slow: 300ms;
+  --bento-ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+  --bento-ease-emphasized: cubic-bezier(0.2, 0, 0, 1);
+  --bento-ease-out: cubic-bezier(0, 0, 0.2, 1);
+
+  /* ── Z-index layers ──────────────────────────────────────── */
+  --bento-z-dropdown: 100;
+  --bento-z-tooltip: 500;
+  --bento-z-dialog: 1000;
+  --bento-z-toast: 1500;
 }
