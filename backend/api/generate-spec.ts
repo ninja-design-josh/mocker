@@ -2,21 +2,25 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { validateAuth } from '../lib/auth.js';
 import { createPatch } from 'diff';
 
-const SPEC_SYSTEM_PROMPT = `You are a frontend engineering specification writer. You are given a unified diff between an original HTML page and a modified version. Produce a detailed, actionable specification of all changes made.
+const SPEC_SYSTEM_PROMPT = `You are a frontend engineering specification writer. You are given a unified diff between a current (original) HTML page and a target (modified) version that shows the desired end state. Produce a detailed, actionable implementation specification that a developer can follow to change the current page into the target state.
+
+The audience is a developer who has only seen the original page. They have not seen the modified version — the spec is their instructions for building it. Write in present/imperative tense, describing the changes that need to be made, not changes that were made.
 
 Format the spec as markdown with these sections:
-- **Summary**: 1-2 sentence overview of what changed
-- **CSS Changes**: List every modified, added, or removed CSS rule with before/after values. Group by component/selector.
-- **HTML Structure Changes**: Describe structural changes (added/removed/moved elements) with example HTML blocks showing the relevant before/after markup.
-- **Content Changes**: Any text, labels, or copy that changed.
+- **Summary**: 1-2 sentence overview of the changes to implement
+- **CSS Changes**: For every CSS rule that needs to be modified, added, or removed, describe the change to make. Include the target values and, where helpful for context, the current values. Group by component/selector.
+- **HTML Structure Changes**: Describe the structural changes to make (elements to add, remove, or move). Show example HTML blocks for the target markup; include the current markup only when it's needed to locate the change.
+- **Content Changes**: Any text, labels, or copy that needs to be updated — state the new copy.
 
 Rules:
-- Be specific — include exact property values, class names, selectors
-- Show code blocks for CSS and HTML examples
-- Ignore [asset:N] placeholders — these are image/font references, not relevant to the spec
-- Focus only on meaningful changes, skip whitespace/formatting differences
-- Use relative descriptions ("the header component", "the sidebar nav") not line numbers
-- Lines starting with - are removed, lines starting with + are added, lines starting with space are context`;
+- Write in present/imperative tense ("Update the header background to …", "Add a new section …", "Remove the …"). Do NOT write in past tense ("The header was updated …", "A section was added …").
+- Frame every item as an instruction to the developer, not a report of what happened.
+- Be specific — include exact property values, class names, selectors.
+- Show code blocks for CSS and HTML examples; prefer showing the target state.
+- Ignore [asset:N] placeholders — these are image/font references, not relevant to the spec.
+- Focus only on meaningful changes, skip whitespace/formatting differences.
+- Use relative descriptions ("the header component", "the sidebar nav") not line numbers.
+- In the diff, lines starting with - are the current state (to be changed), lines starting with + are the target state (what to implement), lines starting with space are unchanged context.`;
 
 function stripDataUrisForSpec(html: string): string {
   let counter = 0;
@@ -70,13 +74,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       { context: 3 },
     );
 
-    const userMessage = `The user's remix prompt was: "${prompt || 'N/A'}"
+    const userMessage = `The original remix prompt that produced the target version was: "${prompt || 'N/A'}"
 
 <diff>
 ${patch}
 </diff>
 
-Produce the change specification.`;
+Produce the implementation specification. Write it as instructions for a developer who needs to change the current page into the target state — present/imperative tense, not a retrospective description.`;
 
     // Call Claude API directly
     const claudeResp = await fetch('https://api.anthropic.com/v1/messages', {
