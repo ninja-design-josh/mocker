@@ -1,27 +1,34 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { readFileSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { validateAuth } from '../lib/auth.js';
 import { startRemixJob } from '../lib/agent.js';
 import type { RemixRequest, BentoReference } from '../lib/types.js';
 
-const BENTO_DIR = join(process.cwd(), 'bento');
+// Use module-relative URLs so Vercel's Node File Tracer detects these as
+// static dependencies and bundles them. Avoids the includeFiles-glob path
+// which was unreliable in practice.
+const BENTO_TOKENS_URL = new URL('../bento/bento-tokens.css', import.meta.url);
+const BENTO_COMPONENTS_URL = new URL('../bento/bento.css', import.meta.url);
+const BENTO_REFERENCE_URL = new URL('../bento/bento-reference.md', import.meta.url);
 
 function loadBentoReference(): BentoReference {
-  const tokensPath = join(BENTO_DIR, 'bento-tokens.css');
-  const componentsPath = join(BENTO_DIR, 'bento.css');
-  const referencePath = join(BENTO_DIR, 'bento-reference.md');
+  const entries: Array<{ url: URL; label: string }> = [
+    { url: BENTO_TOKENS_URL, label: 'bento-tokens.css' },
+    { url: BENTO_COMPONENTS_URL, label: 'bento.css' },
+    { url: BENTO_REFERENCE_URL, label: 'bento-reference.md' },
+  ];
 
-  for (const p of [tokensPath, componentsPath, referencePath]) {
-    if (!existsSync(p)) {
-      throw new Error(`Bento reference file missing at ${p}`);
+  for (const e of entries) {
+    if (!existsSync(fileURLToPath(e.url))) {
+      throw new Error(`Bento reference file missing: ${e.label} at ${e.url.href}`);
     }
   }
 
   return {
-    tokensCss: readFileSync(tokensPath, 'utf-8'),
-    componentsCss: readFileSync(componentsPath, 'utf-8'),
-    referenceMd: readFileSync(referencePath, 'utf-8'),
+    tokensCss: readFileSync(BENTO_TOKENS_URL, 'utf-8'),
+    componentsCss: readFileSync(BENTO_COMPONENTS_URL, 'utf-8'),
+    referenceMd: readFileSync(BENTO_REFERENCE_URL, 'utf-8'),
   };
 }
 
