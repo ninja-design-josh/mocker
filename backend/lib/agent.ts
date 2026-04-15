@@ -164,7 +164,30 @@ try {
     });
 
     updateStatus({ phase: 'uploading', variation: i, total: config.count, results, logUrl: logBlob.url });
-    const modified = readFileSync(dir + '/page.html', 'utf-8');
+    let modified = readFileSync(dir + '/page.html', 'utf-8');
+
+    let bentoInjection = null;
+    if (config.bento) {
+      const injection =
+        '<style data-bento="tokens">' + config.bento.tokensCss + '</style>' +
+        '<style data-bento="components">' + config.bento.componentsCss + '</style>';
+
+      // Insert right after opening <head>; fall back sensibly.
+      if (/<head\\b[^>]*>/i.test(modified)) {
+        modified = modified.replace(/(<head\\b[^>]*>)/i, '$1' + injection);
+        bentoInjection = 'head-start';
+      } else if (/<\\/head>/i.test(modified)) {
+        modified = modified.replace(/(<\\/head>)/i, injection + '$1');
+        bentoInjection = 'head-end';
+      } else if (/<html\\b[^>]*>/i.test(modified)) {
+        modified = modified.replace(/(<html\\b[^>]*>)/i, '$1' + injection);
+        bentoInjection = 'html-start';
+      } else {
+        modified = injection + modified;
+        bentoInjection = 'doc-start';
+      }
+    }
+
     const final = restoreDataUris(modified, dataUriMap);
 
     const blob = await put('mocker/' + config.snapshotName + '/remix-' + i + '.html', final, {
@@ -174,7 +197,9 @@ try {
       token: process.env.BLOB_READ_WRITE_TOKEN,
     });
 
-    results.push({ variationNumber: i, blobUrl: blob.url, fileName: 'remix-' + i + '.html' });
+    const entry = { variationNumber: i, blobUrl: blob.url, fileName: 'remix-' + i + '.html' };
+    if (bentoInjection) entry.bentoInjection = bentoInjection;
+    results.push(entry);
     updateStatus({ phase: 'variation-complete', variation: i, total: config.count, results });
   }
 

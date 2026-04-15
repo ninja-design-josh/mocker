@@ -45,4 +45,7 @@ export interface VariationResult {
   variationNumber: number;
   blobUrl: string;
   fileName: string;
+  /** Present when useBento=true. Records which fallback path the worker
+   *  used to inject Bento <style> blocks. */
+  bentoInjection?: 'head-start' | 'head-end' | 'html-start' | 'doc-start';
 }
