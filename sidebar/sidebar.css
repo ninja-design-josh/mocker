@@ -985,3 +985,18 @@ textarea:focus {
   margin-bottom: 12px;
   word-break: break-word;
 }
+
+/* ── Use Bento toggle ───────────────────────────────────────── */
+.remix-bento-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  user-select: none;
+}
+.remix-bento-toggle input[type="checkbox"] {
+  margin: 0;
+  cursor: pointer;
+}
