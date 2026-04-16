@@ -80,19 +80,24 @@ When the sidebar's "Use Bento" toggle is on (default), the remix agent is
 given access to NinjaCat's Bento design system as a **visual/style
 reference only** — remixes stay self-contained HTML.
 
-Three hand-authored files in `backend/bento/` power this:
+Four hand-authored files in `backend/bento/` power this:
 - `bento-tokens.css` — `:root` CSS custom properties (all prefixed `--bento-*`)
 - `bento.css` — component class rules (all `.bento-*`-scoped)
 - `bento-reference.md` — canonical HTML snippet catalog for each component
+- `bento-safety.css` — defensive containment rules (`.bento-*` `min-width: 0`,
+  `max-width: 100%`, `box-sizing: border-box`, plus media rules). Injected
+  FIRST in the remix output so component rules can override.
 
 Flow: sidebar toggle → `msg.useBento` → service worker POST body →
-`/api/remix` reads the three files from its deployed filesystem (via
-`vercel.json`'s `includeFiles: "bento/**"`) → passes them in
+`/api/remix` reads the four files from its deployed filesystem (via
+`new URL('../bento/...', import.meta.url)` so Vercel's Node File Tracer
+bundles them automatically — NO `includeFiles` glob) → passes them in
 `config.bento` → worker writes them into each variation's dir →
 `BENTO_ADDENDUM` is appended to `SYSTEM_PROMPT` so the agent knows to
-read them → **post-edit**, worker injects `<style data-bento="tokens">`
-and `<style data-bento="components">` into the modified page's `<head>`
-before data-URI restoration.
+read them → **post-edit**, worker injects three `<style>` blocks into
+`<head>`, in order: `data-bento="safety"`, `data-bento="tokens"`,
+`data-bento="components"` — safety first so component rules override
+defensive defaults — before data-URI restoration.
 
 The sandbox never talks to GitLab. To refresh Bento:
 1. Edit the three files in `backend/bento/`.
