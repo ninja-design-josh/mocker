@@ -20,7 +20,6 @@ img, video, svg, canvas, picture, iframe, embed, object {
 
 /* Bento controls in flex rows can shrink; text wraps instead of overflowing. */
 .bento-button,
-.bento-badge,
 .bento-input,
 .bento-select,
 .bento-textarea {
@@ -34,8 +33,9 @@ img, video, svg, canvas, picture, iframe, embed, object {
   table-layout: auto;
 }
 
-/* Fixed/viewport-anchored Bento elements never exceed the viewport. */
-.bento-dialog {
+/* Bento dialog panel never exceeds the viewport even when its declared
+ * max-width is larger than the viewport. */
+.bento-dialog__panel {
   max-width: 100vw;
   max-height: 100vh;
 }
