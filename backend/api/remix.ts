@@ -11,12 +11,14 @@ import type { RemixRequest, BentoReference } from '../lib/types.js';
 const BENTO_TOKENS_URL = new URL('../bento/bento-tokens.css', import.meta.url);
 const BENTO_COMPONENTS_URL = new URL('../bento/bento.css', import.meta.url);
 const BENTO_REFERENCE_URL = new URL('../bento/bento-reference.md', import.meta.url);
+const BENTO_SAFETY_URL = new URL('../bento/bento-safety.css', import.meta.url);
 
 function loadBentoReference(): BentoReference {
   const entries: Array<{ url: URL; label: string }> = [
     { url: BENTO_TOKENS_URL, label: 'bento-tokens.css' },
     { url: BENTO_COMPONENTS_URL, label: 'bento.css' },
     { url: BENTO_REFERENCE_URL, label: 'bento-reference.md' },
+    { url: BENTO_SAFETY_URL, label: 'bento-safety.css' },
   ];
 
   for (const e of entries) {
@@ -29,6 +31,7 @@ function loadBentoReference(): BentoReference {
     tokensCss: readFileSync(BENTO_TOKENS_URL, 'utf-8'),
     componentsCss: readFileSync(BENTO_COMPONENTS_URL, 'utf-8'),
     referenceMd: readFileSync(BENTO_REFERENCE_URL, 'utf-8'),
+    safetyCss: readFileSync(BENTO_SAFETY_URL, 'utf-8'),
   };
 }
 
