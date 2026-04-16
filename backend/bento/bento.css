@@ -26,6 +26,8 @@
   color: var(--bento-fg-default);
   cursor: pointer;
   text-decoration: none;
+  white-space: nowrap;
+  flex-shrink: 0;
   -webkit-appearance: none;
   appearance: none;
   transition: background-color var(--bento-duration-fast) var(--bento-ease-standard),
