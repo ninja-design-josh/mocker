@@ -605,6 +605,84 @@ textarea:focus {
   box-shadow: 0 0 0 2px var(--color-input-focus);
 }
 
+/* ── Remix Composer (unified input) ────────────────────────── */
+.remix-composer {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-card);
+  transition: border-color 0.15s, box-shadow 0.15s;
+  display: flex;
+  flex-direction: column;
+}
+
+.remix-composer:focus-within {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px var(--color-input-focus);
+}
+
+.remix-composer textarea {
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  resize: none;
+  overflow: hidden;
+  min-height: 60px;
+  padding: 8px 10px;
+}
+
+.remix-composer textarea:focus {
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.remix-composer-thumbs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 10px 0 10px;
+}
+
+.remix-composer-thumbs[hidden] {
+  display: none;
+}
+
+.remix-composer-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px 6px;
+}
+
+.remix-composer-attach {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  padding: 0;
+}
+
+.remix-composer-attach:hover {
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+
+.remix-composer-count {
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+.remix-composer-count[hidden] {
+  display: none;
+}
+
 .remix-options {
   display: flex;
   gap: 8px;
@@ -632,10 +710,27 @@ textarea:focus {
   font-size: 12px;
   color: var(--color-text-secondary);
   margin-top: 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .remix-status.error {
   color: var(--color-error);
+}
+
+.remix-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--color-border);
+  border-top-color: var(--color-primary);
+  border-radius: 50%;
+  animation: remix-spin 0.6s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes remix-spin {
+  to { transform: rotate(360deg); }
 }
 
 .remix-turns {
@@ -768,34 +863,6 @@ textarea:focus {
   position: relative;
 }
 
-.remix-refs {
-  margin-bottom: 14px;
-}
-
-.remix-refs-header label {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-
-.remix-refs-hint {
-  font-size: 10px;
-  font-weight: 400;
-  letter-spacing: 0;
-  text-transform: none;
-  color: var(--color-text-muted);
-}
-
-.remix-refs-thumbs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: 6px;
-}
-
-.remix-refs-thumbs[hidden] { display: none; }
-
 .remix-refs-thumb {
   position: relative;
   width: 56px;
@@ -861,40 +928,6 @@ textarea:focus {
 
 .remix-refs-thumb-remove:hover {
   background: rgba(0, 0, 0, 0.85);
-}
-
-.remix-refs-controls {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.remix-refs-count[hidden] { display: none; }
-
-.remix-refs-add {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 5px 10px;
-  border: 1px dashed var(--color-border);
-  border-radius: var(--radius);
-  background: transparent;
-  color: var(--color-text-secondary);
-  font-size: 12px;
-  cursor: pointer;
-  transition: background 0.15s, color 0.15s, border-color 0.15s;
-}
-
-.remix-refs-add:hover {
-  background: var(--color-bg);
-  color: var(--color-text);
-  border-color: var(--color-primary);
-}
-
-.remix-refs-count {
-  font-size: 11px;
-  color: var(--color-text-muted);
-  display: inline;
 }
 
 .remix-drop-overlay {
@@ -1024,13 +1057,218 @@ textarea:focus {
 .remix-bento-toggle {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   font-size: 12px;
   color: var(--color-text-muted);
   cursor: pointer;
   user-select: none;
+  margin-bottom: 12px;
 }
-.remix-bento-toggle input[type="checkbox"] {
-  margin: 0;
+
+.toggle-switch {
+  position: relative;
+  display: inline-block;
+  width: 34px;
+  height: 18px;
+  flex-shrink: 0;
+}
+.toggle-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+  position: absolute;
+}
+.toggle-track {
+  position: absolute;
+  inset: 0;
+  background: var(--color-border);
+  border-radius: 9px;
+  transition: background 0.2s;
+}
+.toggle-track::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  background: #fff;
+  border-radius: 50%;
+  transition: transform 0.2s;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+}
+.toggle-switch input:checked + .toggle-track {
+  background: var(--color-primary);
+}
+.toggle-switch input:checked + .toggle-track::after {
+  transform: translateX(16px);
+}
+
+/* Put Plan first toggle next to Use Bento with a small gap */
+.remix-bento-toggle + .remix-bento-toggle {
+  margin-left: 12px;
+}
+
+/* ── Plan panel (Plan first toggle) ─────────────────────────── */
+.plan-panel {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-bg);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.plan-panel-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.plan-panel-header strong {
+  font-size: 13px;
+}
+.plan-panel-hint {
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+.plan-panel-label {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  margin-bottom: -4px;
+}
+.plan-bullets {
+  width: 100%;
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.4;
+  padding: 8px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface, #fff);
+  color: var(--color-text);
+  resize: vertical;
+  min-height: 110px;
+  box-sizing: border-box;
+}
+.plan-questions:empty {
+  display: none;
+}
+.plan-questions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.plan-question {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.plan-question-label {
+  font-size: 12px;
+  color: var(--color-text);
+  line-height: 1.3;
+}
+.plan-question-input {
+  width: 100%;
+  font-family: inherit;
+  font-size: 12px;
+  padding: 6px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface, #fff);
+  color: var(--color-text);
+  box-sizing: border-box;
+}
+.plan-panel-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.plan-panel-actions .btn {
+  flex-shrink: 0;
+}
+
+#remix-btn.is-planning {
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+/* ── Focus area chips ──────────────────────────────────────────── */
+
+.focus-area-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 10px 4px;
+}
+
+.focus-area-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  padding: 3px 6px 3px 3px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  font-size: 11px;
+  line-height: 1.2;
+  color: var(--color-text);
+}
+
+.focus-area-chip-num {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: rgba(139, 92, 246, 0.9);
+  color: #fff;
+  font-weight: 600;
+  font-size: 10px;
+  line-height: 18px;
+  text-align: center;
+}
+
+.focus-area-chip-label {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.focus-area-chip-tag {
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.focus-area-chip-preview {
+  color: var(--color-text-muted);
+}
+
+.focus-area-chip-remove {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 14px;
+  line-height: 16px;
+  text-align: center;
   cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.focus-area-chip-remove:hover {
+  background: var(--color-error-bg);
+  color: var(--color-error);
+}
+
+.remix-composer-attach.picking {
+  color: rgba(139, 92, 246, 0.9);
+  background: rgba(139, 92, 246, 0.1);
 }

@@ -889,6 +889,7 @@ async function remixViaVercel(prompt, count, settings, sourceContext) {
       model: settings.remixModel || 'claude-sonnet-4-6',
       referenceImages: referenceImages.length ? referenceImages : undefined,
       useBento: sourceContext.useBento === true,
+      useFocusAreas: sourceContext.useFocusAreas === true,
     }),
   });
 
@@ -1043,7 +1044,7 @@ async function remixViaVercel(prompt, count, settings, sourceContext) {
  * Call Claude to generate remix variations via Vercel backend.
  * snapshotId passed explicitly from sidebar (survives SW restarts).
  */
-async function remixSnapshot(snapshotId, prompt, count, referenceImages, useBento) {
+async function remixSnapshot(snapshotId, prompt, count, referenceImages, useBento, useFocusAreas) {
   const sid = snapshotId || activeContext.snapshotId;
   if (!sid) {
     throw new Error('No snapshot captured yet. Capture a snapshot first.');
@@ -1077,6 +1078,7 @@ async function remixSnapshot(snapshotId, prompt, count, referenceImages, useBent
     branchName: snapshot.branchName,
     referenceImages,
     useBento,
+    useFocusAreas,
   };
 
   try {
@@ -1092,7 +1094,7 @@ async function remixSnapshot(snapshotId, prompt, count, referenceImages, useBent
  * Remix from a specific version (re-remix).
  * Fetches HTML from the version's blobUrl.
  */
-async function remixFromVersion(versionId, prompt, count, referenceImages, useBento) {
+async function remixFromVersion(versionId, prompt, count, referenceImages, useBento, useFocusAreas) {
   const version = await getVersion(versionId);
   if (!version) throw new Error('Version not found.');
 
@@ -1120,6 +1122,7 @@ async function remixFromVersion(versionId, prompt, count, referenceImages, useBe
     branchName: snapshot?.branchName,
     referenceImages,
     useBento,
+    useFocusAreas,
   };
 
   try {
@@ -1129,6 +1132,108 @@ async function remixFromVersion(versionId, prompt, count, referenceImages, useBe
     chrome.runtime.sendMessage({ action: 'remixJobEnded', snapshotId: sid, error: err.message || 'Remix failed' }).catch(() => {});
     throw err;
   }
+}
+
+/**
+ * Shared: strip data URIs from HTML, upload the stripped copy to Blob,
+ * and return the URL. Used by planning (snapshot-only) without touching
+ * the remix path. Remix continues to upload both blobs itself.
+ */
+async function uploadStrippedSnapshotForPlanning(html, snapshotName, settings) {
+  const { vercelUrl, vercelApiKey } = settings;
+  const { strippedHtml } = stripDataUris(html);
+  return await uploadToBlob(
+    vercelUrl, vercelApiKey,
+    `mocker/${snapshotName}-plan.html`,
+    new Blob([strippedHtml], { type: 'text/html' })
+  );
+}
+
+/**
+ * Generate a remix plan (bullets + clarifying questions) without starting
+ * a sandbox. Returns { plan, questions } to the sidebar for user review.
+ */
+async function planRemixForSnapshot(snapshotId, prompt, useBento, useFocusAreas, referenceImageCount, variationCount) {
+  const sid = snapshotId || activeContext.snapshotId;
+  if (!sid) throw new Error('No snapshot captured yet. Capture a snapshot first.');
+
+  const settingsResult = await chrome.storage.sync.get(STORAGE_KEY);
+  const settings = settingsResult[STORAGE_KEY];
+  if (!settings?.vercelUrl || !settings?.vercelApiKey) {
+    throw new Error('Vercel backend not configured. Add Backend URL and API Key in Settings.');
+  }
+
+  const snapshot = await getSnapshot(sid);
+  if (!snapshot) throw new Error('Snapshot not found.');
+
+  let html = (activeContext.snapshotId === sid && activeContext.html) ? activeContext.html : null;
+  if (!html && snapshot.blobUrl) {
+    const resp = await fetch(snapshot.blobUrl);
+    if (!resp.ok) throw new Error('Failed to fetch snapshot HTML from Blob.');
+    html = await resp.text();
+    activeContext = { snapshotId: sid, versionId: null, html };
+  }
+  if (!html) throw new Error('Snapshot has no HTML content.');
+
+  return await callPlanEndpoint(html, snapshot.snapshotName || 'snapshot', prompt, settings, {
+    useBento, useFocusAreas, referenceImageCount, variationCount,
+  });
+}
+
+async function planRemixForVersion(versionId, prompt, useBento, useFocusAreas, referenceImageCount, variationCount) {
+  const version = await getVersion(versionId);
+  if (!version) throw new Error('Version not found.');
+  if (!version.blobUrl) throw new Error('Version has no blob URL.');
+
+  const settingsResult = await chrome.storage.sync.get(STORAGE_KEY);
+  const settings = settingsResult[STORAGE_KEY];
+  if (!settings?.vercelUrl || !settings?.vercelApiKey) {
+    throw new Error('Vercel backend not configured. Add Backend URL and API Key in Settings.');
+  }
+
+  const resp = await fetch(version.blobUrl);
+  if (!resp.ok) throw new Error('Failed to fetch version HTML from Blob.');
+  const html = await resp.text();
+
+  const snapshot = await getSnapshot(version.snapshotId);
+  const name = snapshot?.snapshotName || 'snapshot';
+
+  return await callPlanEndpoint(html, name, prompt, settings, {
+    useBento, useFocusAreas, referenceImageCount, variationCount,
+  });
+}
+
+async function callPlanEndpoint(html, snapshotName, prompt, settings, flags) {
+  const { vercelUrl, vercelApiKey } = settings;
+  const snapshotBlobUrl = await uploadStrippedSnapshotForPlanning(html, snapshotName, settings);
+
+  const resp = await fetch(`${vercelUrl}/api/plan`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${vercelApiKey}`,
+    },
+    body: JSON.stringify({
+      snapshotBlobUrl,
+      prompt,
+      snapshotName,
+      useBento: flags.useBento === true,
+      useFocusAreas: flags.useFocusAreas === true,
+      referenceImageCount: flags.referenceImageCount || 0,
+      variationCount: flags.variationCount || 1,
+    }),
+  });
+
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(`Plan request failed: ${resp.status} ${text}`);
+  }
+
+  const data = await resp.json();
+  return {
+    plan: Array.isArray(data.plan) ? data.plan : [],
+    questions: Array.isArray(data.questions) ? data.questions : [],
+  };
 }
 
 /**
@@ -1175,17 +1280,106 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.action === 'remixSnapshot') {
-    remixSnapshot(msg.snapshotId, msg.prompt, msg.count, msg.referenceImages, msg.useBento)
+    remixSnapshot(msg.snapshotId, msg.prompt, msg.count, msg.referenceImages, msg.useBento, msg.useFocusAreas)
       .then(data => sendResponse({ results: data.results, logUrl: data.logUrl, versionIds: data.versionIds }))
       .catch(err => sendResponse({ error: err.message }));
     return true;
   }
 
   if (msg.action === 'remixFromVersion') {
-    remixFromVersion(msg.versionId, msg.prompt, msg.count, msg.referenceImages, msg.useBento)
+    remixFromVersion(msg.versionId, msg.prompt, msg.count, msg.referenceImages, msg.useBento, msg.useFocusAreas)
       .then(data => sendResponse({ results: data.results, logUrl: data.logUrl, versionIds: data.versionIds }))
       .catch(err => sendResponse({ error: err.message }));
     return true;
+  }
+
+  if (msg.action === 'planRemixSnapshot') {
+    planRemixForSnapshot(msg.snapshotId, msg.prompt, msg.useBento, msg.useFocusAreas, msg.referenceImageCount, msg.variationCount)
+      .then(data => sendResponse({ plan: data.plan, questions: data.questions }))
+      .catch(err => sendResponse({ error: err.message }));
+    return true;
+  }
+
+  if (msg.action === 'planRemixFromVersion') {
+    planRemixForVersion(msg.versionId, msg.prompt, msg.useBento, msg.useFocusAreas, msg.referenceImageCount, msg.variationCount)
+      .then(data => sendResponse({ plan: data.plan, questions: data.questions }))
+      .catch(err => sendResponse({ error: err.message }));
+    return true;
+  }
+
+  // ── Focus area picker ──────────────────────────────────────────────
+
+  if (msg.action === 'startFocusPicker') {
+    (async () => {
+      try {
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (!tab?.id) throw new Error('No active tab found.');
+        await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          files: ['content/focus-picker.js'],
+        });
+        sendResponse({ ok: true });
+      } catch (err) {
+        sendResponse({ error: err.message });
+      }
+    })();
+    return true;
+  }
+
+  if (msg.action === 'focusAreasReady') {
+    const pickerTabId = sender.tab?.id;
+    (async () => {
+      try {
+        // Capture screenshot while overlays are still visible
+        const screenshotDataUrl = await chrome.tabs.captureVisibleTab(null, { format: 'png' });
+
+        // Tell the content script to clean up
+        if (pickerTabId) {
+          chrome.tabs.sendMessage(pickerTabId, { action: 'cleanupPicker' }).catch(() => {});
+        }
+
+        // Upload screenshot to Blob if Vercel is configured
+        let screenshotUrl = screenshotDataUrl; // fallback to data URL
+        try {
+          const settingsResult = await chrome.storage.sync.get(STORAGE_KEY);
+          const settings = settingsResult[STORAGE_KEY];
+          if (settings?.vercelUrl && settings?.vercelApiKey) {
+            const resp = await fetch(screenshotDataUrl);
+            const blob = await resp.blob();
+            screenshotUrl = await uploadToBlob(
+              settings.vercelUrl, settings.vercelApiKey,
+              `mocker/focus-area-screenshot-${Date.now()}.png`,
+              blob
+            );
+          }
+        } catch (_) {
+          // Keep the data URL as fallback
+        }
+
+        // Forward to sidebar
+        chrome.runtime.sendMessage({
+          action: 'focusAreasComplete',
+          areas: msg.areas,
+          screenshotUrl,
+        }).catch(() => {});
+      } catch (err) {
+        // Still try to clean up the picker on error
+        if (pickerTabId) {
+          chrome.tabs.sendMessage(pickerTabId, { action: 'cleanupPicker' }).catch(() => {});
+        }
+        chrome.runtime.sendMessage({
+          action: 'focusAreasCancelled',
+        }).catch(() => {});
+      }
+    })();
+    return false; // no direct response needed
+  }
+
+  if (msg.action === 'focusAreasCancelled' && sender.tab) {
+    // Only relay messages from content scripts (sender.tab is set).
+    // Ignore relayed messages from the extension itself to avoid loops.
+    chrome.runtime.sendMessage({ action: 'focusAreasCancelled' }).catch(() => {});
+    return false;
   }
 
   if (msg.action === 'getVersionTree') {

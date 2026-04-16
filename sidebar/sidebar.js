@@ -38,7 +38,14 @@ const remixSection = document.getElementById('remix-section');
 const remixPrompt = document.getElementById('remix-prompt');
 const remixCount = document.getElementById('remix-count');
 const remixUseBento = document.getElementById('remix-use-bento');
+const remixPlanFirst = document.getElementById('remix-plan-first');
 const remixBtn = document.getElementById('remix-btn');
+const planPanel = document.getElementById('plan-panel');
+const planBullets = document.getElementById('plan-bullets');
+const planQuestionsEl = document.getElementById('plan-questions');
+const planConfirmBtn = document.getElementById('plan-confirm-btn');
+const planSkipBtn = document.getElementById('plan-skip-btn');
+const planCancelBtn = document.getElementById('plan-cancel-btn');
 const remixStatus = document.getElementById('remix-status');
 const remixTurns = document.getElementById('remix-turns');
 const remixSourceName = document.getElementById('remix-source-name');
@@ -64,6 +71,7 @@ const lightboxCaption = document.getElementById('image-lightbox-caption');
 const lightboxClose = document.getElementById('image-lightbox-close');
 
 // Current workspace state
+let suppressStorageReinit = false;
 let currentSnapshotId = null;
 let remixSourceVersionId = null; // null = remix from original
 let hasVercelBackend = false;
@@ -75,11 +83,19 @@ let lastCaptureSection = 'captureForm'; // remember which capture section was sh
 // Track spinner elements for active remixes on history cards, keyed by snapshotId
 const historySpinners = new Map();
 
+// Plan-first pending context: set when the plan panel is open waiting for user review.
+let pendingPlanContext = null;
+
 // Reference image state: items = [{ id, name, mediaType, previewUrl, url?, uploading, error? }]
 // Only items with `url` set are sent to the backend.
 let referenceImages = [];
 let refImageIdCounter = 0;
 let currentSettings = null; // cached from init() so upload helpers have vercelUrl/apiKey
+
+// Focus area state — populated by the element picker
+let focusAreas = [];        // [{ index, selector, tagName, id, classes, textPreview, rect }]
+let focusScreenshotUrl = null; // Blob URL of annotated screenshot with overlays
+let focusPickerActive = false;
 
 // Capture-flow sections (everything except history)
 const captureSections = ['noConfig', 'noTab', 'captureForm', 'progress', 'result', 'error'];
@@ -707,6 +723,9 @@ async function init() {
   const useBentoStored = settings?.useBento;
   remixUseBento.checked = useBentoStored !== false;
 
+  // planFirst toggle: default off, opt-in.
+  remixPlanFirst.checked = settings?.planFirst === true;
+
   hasVercelBackend = !!(settings?.vercelUrl && settings?.vercelApiKey);
   hasRepoCreds = checkRepoCreds(settings);
 
@@ -798,7 +817,26 @@ chrome.runtime.onMessage.addListener((msg) => {
   }
 });
 
+// ── Focus area picker messages ───────────────────────────────────────
+chrome.runtime.onMessage.addListener((msg) => {
+  if (msg.action === 'focusAreasComplete') {
+    focusAreas = msg.areas || [];
+    focusScreenshotUrl = msg.screenshotUrl || null;
+    focusPickerActive = false;
+    focusPickerBtn.classList.remove('picking');
+    renderFocusChips();
+  }
+  if (msg.action === 'focusAreasCancelled') {
+    focusPickerActive = false;
+    focusPickerBtn.classList.remove('picking');
+  }
+});
+
 // ── Header buttons ────────────────────────────────────────────────────
+
+document.getElementById('reload-extension').addEventListener('click', () => {
+  chrome.runtime.reload();
+});
 
 document.getElementById('open-options').addEventListener('click', () => {
   chrome.runtime.openOptionsPage();
@@ -1014,75 +1052,355 @@ function buildVersionRefBadge(v, infoEl) {
 
 // ── Remix ─────────────────────────────────────────────────────────────
 
+function setRemixStatus(text, spinning) {
+  remixStatus.innerHTML = '';
+  if (spinning) {
+    const spinner = document.createElement('span');
+    spinner.className = 'remix-spinner';
+    remixStatus.appendChild(spinner);
+  }
+  remixStatus.appendChild(document.createTextNode(text));
+}
+
+// ── Focus area picker ─────────────────────────────────────────────
+
+const focusChipsContainer = document.getElementById('focus-area-chips');
+const focusPickerBtn = document.getElementById('remix-focus-picker');
+const focusCountBadge = document.getElementById('remix-focus-count');
+
+function clearFocusAreas() {
+  focusAreas = [];
+  focusScreenshotUrl = null;
+  focusPickerActive = false;
+  focusPickerBtn.classList.remove('picking');
+  renderFocusChips();
+}
+
+function renderFocusChips() {
+  if (!focusAreas.length) {
+    focusChipsContainer.hidden = true;
+    focusChipsContainer.innerHTML = '';
+    focusCountBadge.hidden = true;
+    return;
+  }
+  focusChipsContainer.hidden = false;
+  focusChipsContainer.innerHTML = '';
+  focusCountBadge.textContent = focusAreas.length;
+  focusCountBadge.hidden = false;
+
+  for (const area of focusAreas) {
+    const chip = document.createElement('div');
+    chip.className = 'focus-area-chip';
+
+    const num = document.createElement('span');
+    num.className = 'focus-area-chip-num';
+    num.textContent = area.index;
+
+    const label = document.createElement('span');
+    label.className = 'focus-area-chip-label';
+
+    const tag = document.createElement('span');
+    tag.className = 'focus-area-chip-tag';
+    const classStr = area.classes.length ? '.' + area.classes.slice(0, 2).join('.') : '';
+    tag.textContent = area.tagName + classStr;
+
+    label.appendChild(tag);
+    if (area.textPreview) {
+      const preview = document.createElement('span');
+      preview.className = 'focus-area-chip-preview';
+      preview.textContent = ' — ' + area.textPreview;
+      label.appendChild(preview);
+    }
+
+    const removeBtn = document.createElement('button');
+    removeBtn.className = 'focus-area-chip-remove';
+    removeBtn.textContent = '×';
+    removeBtn.title = 'Remove focus area';
+    removeBtn.addEventListener('click', () => removeFocusArea(area.index));
+
+    chip.appendChild(num);
+    chip.appendChild(label);
+    chip.appendChild(removeBtn);
+    focusChipsContainer.appendChild(chip);
+  }
+}
+
+function removeFocusArea(index) {
+  focusAreas = focusAreas.filter(a => a.index !== index);
+  // Renumber remaining
+  focusAreas.forEach((a, i) => { a.index = i + 1; });
+  // Screenshot is now stale if areas changed
+  focusScreenshotUrl = null;
+  renderFocusChips();
+}
+
+function buildFocusPrefix() {
+  let prefix = 'FOCUS AREAS — Only modify the elements listed below. Do not change anything outside these areas.\n\n';
+  for (const area of focusAreas) {
+    const attrs = [area.tagName];
+    if (area.id) attrs[0] += '#' + area.id;
+    if (area.classes.length) attrs[0] += '.' + area.classes.join('.');
+    prefix += `[${area.index}] <${attrs[0]}> — "${area.textPreview}"\n`;
+    prefix += `    Selector: ${area.selector}\n\n`;
+  }
+  prefix += 'The first attached reference image shows these areas highlighted with numbered purple overlays.\n---\n\n';
+  return prefix;
+}
+
+focusPickerBtn.addEventListener('click', async () => {
+  if (focusPickerActive) return;
+
+  // Clear previous focus areas when re-picking
+  clearFocusAreas();
+  focusPickerActive = true;
+  focusPickerBtn.classList.add('picking');
+
+  try {
+    const response = await chrome.runtime.sendMessage({ action: 'startFocusPicker' });
+    if (response?.error) {
+      showToast(response.error);
+      focusPickerActive = false;
+      focusPickerBtn.classList.remove('picking');
+    }
+  } catch (err) {
+    showToast('Failed to start focus picker');
+    focusPickerActive = false;
+    focusPickerBtn.classList.remove('picking');
+  }
+});
+
 function resetRemixState() {
   remixPrompt.value = '';
   remixBtn.disabled = false;
+  remixBtn.classList.remove('is-planning');
+  remixBtn.textContent = 'Remix';
   remixStatus.hidden = true;
   remixStatus.textContent = '';
   remixStatus.className = 'remix-status';
   remixTurns.hidden = true;
   remixTurns.innerHTML = '';
+  if (planPanel) planPanel.hidden = true;
+  if (planBullets) planBullets.value = '';
+  if (planQuestionsEl) planQuestionsEl.innerHTML = '';
+  pendingPlanContext = null;
   resetReferenceImages();
+  clearFocusAreas();
 }
 
-remixBtn.addEventListener('click', async () => {
+function collectRemixContext() {
   const prompt = remixPrompt.value.trim();
   if (!prompt) {
     remixPrompt.focus();
-    return;
+    return null;
   }
 
   // Block while any image is still uploading
   if (referenceImages.some(x => x.uploading)) {
     showToast('Wait for reference images to finish uploading');
-    return;
+    return null;
   }
 
   const uploadedRefs = referenceImages
     .filter(x => x.url)
     .map(x => ({ url: x.url, mediaType: x.mediaType, name: x.name }));
 
+  const allRefs = [];
+  if (focusScreenshotUrl && focusAreas.length) {
+    allRefs.push({ url: focusScreenshotUrl, mediaType: 'image/png', name: 'focus-areas.png' });
+  }
+  allRefs.push(...uploadedRefs);
+
+  const focusPrefix = focusAreas.length ? buildFocusPrefix() : '';
   const count = parseInt(remixCount.value, 10);
+
+  return { userPrompt: prompt, focusPrefix, allRefs, count };
+}
+
+async function dispatchRemix(finalPrompt, ctx) {
   remixBtn.disabled = true;
   remixStatus.hidden = false;
   remixStatus.className = 'remix-status';
-  remixStatus.textContent = `Generating variation 1 of ${count}...`;
+  setRemixStatus(`Generating variation 1 of ${ctx.count}...`, true);
 
   try {
     const action = remixSourceVersionId ? 'remixFromVersion' : 'remixSnapshot';
-    const msg = { action, prompt, count, snapshotId: currentSnapshotId };
+    const msg = { action, prompt: finalPrompt, count: ctx.count, snapshotId: currentSnapshotId };
     if (remixSourceVersionId) msg.versionId = remixSourceVersionId;
-    if (uploadedRefs.length) msg.referenceImages = uploadedRefs;
+    if (ctx.allRefs.length) msg.referenceImages = ctx.allRefs;
     msg.useBento = remixUseBento.checked;
+    if (focusAreas.length) msg.useFocusAreas = true;
 
     const response = await chrome.runtime.sendMessage(msg);
+    if (response.error) throw new Error(response.error);
 
-    if (response.error) {
-      throw new Error(response.error);
-    }
-
-    remixStatus.textContent = 'Done!';
-
-    // Clear attached references after a successful remix (no auto-carry-forward)
+    setRemixStatus('Done!', false);
     resetReferenceImages();
-
-    // Refresh version tree to show new versions
+    clearFocusAreas();
     await refreshVersionTree();
   } catch (err) {
     remixStatus.className = 'remix-status error';
-    remixStatus.textContent = err.message || 'Remix failed';
+    setRemixStatus(err.message || 'Remix failed', false);
   } finally {
     remixBtn.disabled = false;
   }
+}
+
+function renderPlanPanel(plan, questions) {
+  planBullets.value = Array.isArray(plan) && plan.length
+    ? plan.map(b => `- ${String(b).replace(/^[-*•\s]+/, '')}`).join('\n')
+    : '';
+
+  planQuestionsEl.innerHTML = '';
+  (questions || []).forEach((q, i) => {
+    const id = q.id || `q${i + 1}`;
+    const row = document.createElement('div');
+    row.className = 'plan-question';
+    row.dataset.questionId = id;
+    row.dataset.questionText = q.question;
+
+    const label = document.createElement('label');
+    label.className = 'plan-question-label';
+    label.setAttribute('for', `plan-q-${id}`);
+    label.textContent = q.question;
+
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'plan-question-input';
+    input.id = `plan-q-${id}`;
+    if (q.suggestedAnswer) input.placeholder = q.suggestedAnswer;
+
+    row.appendChild(label);
+    row.appendChild(input);
+    planQuestionsEl.appendChild(row);
+  });
+
+  planPanel.hidden = false;
+}
+
+function hidePlanPanel() {
+  planPanel.hidden = true;
+  planBullets.value = '';
+  planQuestionsEl.innerHTML = '';
+  pendingPlanContext = null;
+  remixBtn.classList.remove('is-planning');
+  remixBtn.textContent = 'Remix';
+  remixBtn.disabled = false;
+}
+
+function buildCombinedPrompt(ctx) {
+  const original = ctx.userPrompt;
+  const bulletLines = planBullets.value
+    .split('\n')
+    .map(l => l.trim())
+    .filter(Boolean);
+  const planBody = bulletLines
+    .map(l => (l.startsWith('-') || l.startsWith('*') ? l : `- ${l}`))
+    .join('\n');
+
+  const answeredQs = [];
+  planQuestionsEl.querySelectorAll('.plan-question').forEach((row) => {
+    const question = row.dataset.questionText;
+    const input = row.querySelector('.plan-question-input');
+    const answer = input?.value.trim();
+    if (question && answer) answeredQs.push(`- Q: ${question} / A: ${answer}`);
+  });
+
+  const sections = [ctx.focusPrefix + original];
+  if (planBody) sections.push(`Approved plan:\n${planBody}`);
+  if (answeredQs.length) sections.push(`Clarifications:\n${answeredQs.join('\n')}`);
+  return sections.join('\n\n');
+}
+
+remixBtn.addEventListener('click', async () => {
+  const ctx = collectRemixContext();
+  if (!ctx) return;
+
+  // Plan-first path: fetch plan, show panel, return. Final dispatch happens
+  // after the user confirms/skips in the panel.
+  if (remixPlanFirst.checked && planPanel.hidden) {
+    remixBtn.disabled = true;
+    remixBtn.classList.add('is-planning');
+    remixBtn.textContent = 'Planning…';
+    remixStatus.hidden = true;
+
+    try {
+      const action = remixSourceVersionId ? 'planRemixFromVersion' : 'planRemixSnapshot';
+      const msg = {
+        action,
+        prompt: (ctx.focusPrefix || '') + ctx.userPrompt,
+        snapshotId: currentSnapshotId,
+        useBento: remixUseBento.checked,
+        useFocusAreas: focusAreas.length > 0,
+        referenceImageCount: ctx.allRefs.length,
+        variationCount: ctx.count,
+      };
+      if (remixSourceVersionId) msg.versionId = remixSourceVersionId;
+
+      const response = await chrome.runtime.sendMessage(msg);
+      if (response?.error) throw new Error(response.error);
+
+      pendingPlanContext = ctx;
+      renderPlanPanel(response.plan, response.questions);
+      remixBtn.textContent = 'Remix';
+      remixBtn.classList.remove('is-planning');
+    } catch (err) {
+      remixStatus.hidden = false;
+      remixStatus.className = 'remix-status error';
+      setRemixStatus(err.message || 'Planning failed', false);
+      remixBtn.disabled = false;
+      remixBtn.classList.remove('is-planning');
+      remixBtn.textContent = 'Remix';
+    }
+    return;
+  }
+
+  // Direct-remix path
+  const finalPrompt = (ctx.focusPrefix || '') + ctx.userPrompt;
+  await dispatchRemix(finalPrompt, ctx);
+});
+
+planConfirmBtn.addEventListener('click', async () => {
+  if (!pendingPlanContext) return;
+  const ctx = pendingPlanContext;
+  const finalPrompt = buildCombinedPrompt(ctx);
+  hidePlanPanel();
+  await dispatchRemix(finalPrompt, ctx);
+});
+
+planSkipBtn.addEventListener('click', async () => {
+  if (!pendingPlanContext) return;
+  const ctx = pendingPlanContext;
+  const finalPrompt = (ctx.focusPrefix || '') + ctx.userPrompt;
+  hidePlanPanel();
+  await dispatchRemix(finalPrompt, ctx);
+});
+
+planCancelBtn.addEventListener('click', () => {
+  hidePlanPanel();
 });
 
 // ── Use Bento toggle persistence ───────────────────────────────────────
 
 remixUseBento.addEventListener('change', async () => {
   const next = { ...(currentSettings || {}), useBento: remixUseBento.checked };
+  suppressStorageReinit = true;
   await chrome.storage.sync.set({ [STORAGE_KEY]: next });
   currentSettings = next;
 });
+
+remixPlanFirst.addEventListener('change', async () => {
+  const next = { ...(currentSettings || {}), planFirst: remixPlanFirst.checked };
+  suppressStorageReinit = true;
+  await chrome.storage.sync.set({ [STORAGE_KEY]: next });
+  currentSettings = next;
+});
+
+// ── Auto-resize prompt textarea ──────────────────────────────────────
+function autoResizePrompt() {
+  remixPrompt.style.height = 'auto';
+  remixPrompt.style.height = remixPrompt.scrollHeight + 'px';
+}
+remixPrompt.addEventListener('input', autoResizePrompt);
 
 // ── Reference image input wiring ──────────────────────────────────────
 
@@ -1179,7 +1497,7 @@ chrome.runtime.onMessage.addListener((msg) => {
     // Only update the capture-screen remix status if this message is for the active snapshot
     if (msg.snapshotId == null || msg.snapshotId === currentSnapshotId) {
       const costStr = msg.costUsd != null ? ` — $${msg.costUsd.toFixed(2)}` : '';
-      remixStatus.textContent = msg.text + costStr;
+      setRemixStatus(msg.text + costStr, true);
 
       // Render live turns feed
       if (msg.turns && msg.turns.length) {
@@ -1259,6 +1577,10 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
 // Re-run init when settings change (sidebar stays open)
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'sync' && changes[STORAGE_KEY]) {
+    if (suppressStorageReinit) {
+      suppressStorageReinit = false;
+      return;
+    }
     init();
   }
 });

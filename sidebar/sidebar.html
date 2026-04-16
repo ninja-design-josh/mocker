@@ -17,6 +17,12 @@
         <button id="tab-history" class="tab-btn">History</button>
       </div>
       <div class="header-right">
+        <button id="reload-extension" class="header-btn" title="Reload extension">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="23 4 23 10 17 10"/>
+            <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+          </svg>
+        </button>
         <button id="open-options" class="header-btn" title="Settings">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="3"/>
@@ -119,24 +125,39 @@
           </div>
           <div class="field">
             <label for="remix-prompt">Describe changes</label>
-            <textarea id="remix-prompt" rows="3" placeholder="e.g. Make it dark mode with a purple accent..."></textarea>
+            <div class="remix-composer" id="remix-composer">
+              <div id="focus-area-chips" class="focus-area-chips" hidden></div>
+              <div id="remix-refs-thumbs" class="remix-composer-thumbs" hidden></div>
+              <textarea id="remix-prompt" rows="3" placeholder="e.g. Make it dark mode with a purple accent..."></textarea>
+              <div class="remix-composer-toolbar">
+                <button type="button" id="remix-focus-picker" class="remix-composer-attach" title="Select focus areas on page">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="22" y1="12" x2="18" y2="12"/><line x1="6" y1="12" x2="2" y2="12"/><line x1="12" y1="6" x2="12" y2="2"/><line x1="12" y1="22" x2="12" y2="18"/></svg>
+                </button>
+                <span id="remix-focus-count" class="remix-composer-count" hidden></span>
+                <button type="button" id="remix-add-refs" class="remix-composer-attach" title="Add reference images (max 10, 5MB each)">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                </button>
+                <span id="remix-refs-count" class="remix-composer-count" hidden></span>
+              </div>
+              <input type="file" id="remix-refs-input" accept="image/*" multiple hidden>
+            </div>
           </div>
 
-          <!-- Reference images -->
-          <div class="remix-refs">
-            <div class="remix-refs-header">
-              <label>Reference images <span class="remix-refs-hint">optional — drop, paste, or pick (max 10, 5MB each)</span></label>
-            </div>
-            <div id="remix-refs-thumbs" class="remix-refs-thumbs" hidden></div>
-            <div class="remix-refs-controls">
-              <button type="button" id="remix-add-refs" class="remix-refs-add">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
-                Add reference images
-              </button>
-              <span id="remix-refs-count" class="remix-refs-count" hidden></span>
-            </div>
-            <input type="file" id="remix-refs-input" accept="image/*" multiple hidden>
-          </div>
+          <label class="remix-bento-toggle" for="remix-use-bento">
+            <span class="toggle-switch">
+              <input type="checkbox" id="remix-use-bento" checked>
+              <span class="toggle-track"></span>
+            </span>
+            <span>Use Bento</span>
+          </label>
+
+          <label class="remix-bento-toggle" for="remix-plan-first">
+            <span class="toggle-switch">
+              <input type="checkbox" id="remix-plan-first">
+              <span class="toggle-track"></span>
+            </span>
+            <span>Plan first</span>
+          </label>
 
           <div class="remix-options">
             <div class="field field-inline">
@@ -149,14 +170,26 @@
                 <option value="5">5</option>
               </select>
             </div>
-            <label class="remix-bento-toggle" for="remix-use-bento">
-              <input type="checkbox" id="remix-use-bento" checked>
-              <span>Use Bento</span>
-            </label>
             <button type="button" id="remix-btn" class="btn btn-primary">Remix</button>
           </div>
           <div id="remix-status" class="remix-status" hidden></div>
           <div id="remix-turns" class="remix-turns" hidden></div>
+
+          <!-- Planning-mode panel: shown when "Plan first" toggle is on -->
+          <section id="plan-panel" class="plan-panel" hidden>
+            <div class="plan-panel-header">
+              <strong>Plan</strong>
+              <span class="plan-panel-hint">Review and edit before remix runs</span>
+            </div>
+            <label class="plan-panel-label" for="plan-bullets">What the agent will change</label>
+            <textarea id="plan-bullets" class="plan-bullets" rows="6" placeholder="- bullet one&#10;- bullet two"></textarea>
+            <div id="plan-questions" class="plan-questions"></div>
+            <div class="plan-panel-actions">
+              <button type="button" id="plan-confirm-btn" class="btn btn-primary">Start remix</button>
+              <button type="button" id="plan-skip-btn" class="btn btn-secondary">Skip plan</button>
+              <button type="button" id="plan-cancel-btn" class="btn btn-secondary">Cancel</button>
+            </div>
+          </section>
 
           <!-- Drop overlay shown while dragging files over the card -->
           <div id="remix-drop-overlay" class="remix-drop-overlay" hidden>

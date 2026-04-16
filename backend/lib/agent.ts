@@ -50,6 +50,16 @@ How to apply Bento:
 7. All existing Snapshot rules still apply (no scripts, no CDN links, no tracking).
 `;
 
+const FOCUS_ADDENDUM = `
+
+Focus area constraint — CRITICAL:
+The user has selected specific elements on the page to modify. A reference image shows these areas highlighted with numbered purple overlays.
+- ONLY modify HTML within the elements described in the focus area list at the top of the user's message
+- Each focus area includes a CSS selector — use Grep to find these elements in page.html
+- Do NOT modify any elements outside the focused areas
+- The numbered overlays in the first reference image correspond to the numbered descriptions
+`;
+
 // This script runs inside the sandbox microVM — fully self-contained.
 // It downloads source files from Blob, installs the Agent SDK, runs the agent
 // for each variation, restores data URIs, and uploads results to Blob.
@@ -253,6 +263,7 @@ export async function startRemixJob(opts: {
   snapshotName: string;
   referenceImages?: ReferenceImage[];
   bento?: BentoReference;
+  useFocusAreas?: boolean;
 }): Promise<string> {
   const sandbox = await Sandbox.create({
     runtime: 'node22',
@@ -264,9 +275,9 @@ export async function startRemixJob(opts: {
     },
   });
 
-  const systemPrompt = opts.bento
-    ? SYSTEM_PROMPT + BENTO_ADDENDUM
-    : SYSTEM_PROMPT;
+  let systemPrompt = SYSTEM_PROMPT;
+  if (opts.bento) systemPrompt += BENTO_ADDENDUM;
+  if (opts.useFocusAreas) systemPrompt += FOCUS_ADDENDUM;
 
   const config = {
     snapshotBlobUrl: opts.snapshotBlobUrl,

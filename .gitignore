@@ -1,4 +1,6 @@
 .DS_Store
 .claude/
 .vercel
+.playwright-mcp/
+remix-*.html
 backend/bento/_gallery.html
