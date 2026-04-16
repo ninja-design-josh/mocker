@@ -91,6 +91,7 @@ try {
       writeFileSync(dir + '/bento-tokens.css', config.bento.tokensCss);
       writeFileSync(dir + '/bento.css', config.bento.componentsCss);
       writeFileSync(dir + '/bento-reference.md', config.bento.referenceMd);
+      writeFileSync(dir + '/bento-safety.css', config.bento.safetyCss);
     }
 
     const turns = [];
