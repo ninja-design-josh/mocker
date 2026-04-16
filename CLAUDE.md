@@ -100,7 +100,7 @@ read them → **post-edit**, worker injects three `<style>` blocks into
 defensive defaults — before data-URI restoration.
 
 The sandbox never talks to GitLab. To refresh Bento:
-1. Edit the three files in `backend/bento/`.
+1. Edit the four files in `backend/bento/`.
 2. Redeploy (`git push` + `vercel --prod` from the repo root).
 
 To extend the v1 catalog, add both the component's `.bento-*` rules to
