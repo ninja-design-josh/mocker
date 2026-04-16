@@ -1,0 +1,41 @@
+/* Snapshot safety layer — injected into <head> after agent edits.
+ * Defensive rules only. Should not change how a well-formed captured
+ * page renders; only catch edge cases when new elements are added.
+ * Paired with bento-tokens.css and bento.css; injected first so Bento
+ * component rules can override these defensive defaults.
+ */
+
+/* Media never exceeds parent bounds. Universal — low risk of harm. */
+img, video, svg, canvas, picture, iframe, embed, object {
+  max-width: 100%;
+  height: auto;
+}
+
+/* Anything Bento-classed stays inside its container. */
+[class*="bento-"] {
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+/* Bento controls in flex rows can shrink; text wraps instead of overflowing. */
+.bento-button,
+.bento-badge,
+.bento-input,
+.bento-select,
+.bento-textarea {
+  min-width: 0;
+  overflow-wrap: break-word;
+}
+
+/* Bento tables fit within their parent. */
+.bento-table {
+  max-width: 100%;
+  table-layout: auto;
+}
+
+/* Fixed/viewport-anchored Bento elements never exceed the viewport. */
+.bento-dialog {
+  max-width: 100vw;
+  max-height: 100vh;
+}
