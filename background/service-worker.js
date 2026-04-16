@@ -11,6 +11,9 @@ const SIZE_WARNING_BYTES = 10 * 1024 * 1024; // 10 MB
 // In-memory active context: which snapshot/version we're working with
 let activeContext = { snapshotId: null, versionId: null, html: null };
 
+// Track in-flight remix jobs so the sidebar can show spinners on history cards
+const activeRemixes = new Map(); // snapshotId -> { jobId, phase, variation, total, startedAt }
+
 // ── IndexedDB v2: snapshots + versions ───────────────────────────────────
 
 function openMockerDb() {
@@ -831,10 +834,10 @@ function restoreDataUris(html, dataUriMap) {
 }
 
 /**
- * Send remix progress updates to the popup.
+ * Send remix progress updates to the sidebar.
  */
-function sendRemixProgress(current, total, text, extra = {}) {
-  chrome.runtime.sendMessage({ action: 'remixProgress', current, total, text, ...extra }).catch(() => {});
+function sendRemixProgress(snapshotId, current, total, text, extra = {}) {
+  chrome.runtime.sendMessage({ action: 'remixProgress', snapshotId, current, total, text, ...extra }).catch(() => {});
 }
 
 /**
@@ -849,9 +852,10 @@ async function remixViaVercel(prompt, count, settings, sourceContext) {
 
   const { strippedHtml, dataUriMap } = stripDataUris(sourceContext.html);
   const snapshotName = sourceContext.snapshotName;
+  const sid = sourceContext.snapshotId;
 
   // Upload stripped HTML and data URI map to Blob
-  sendRemixProgress(0, count, 'Uploading snapshot to backend...');
+  sendRemixProgress(sid, 0, count, 'Uploading snapshot to backend...');
 
   const snapshotBlobUrl = await uploadToBlob(
     vercelUrl, vercelApiKey,
@@ -866,7 +870,7 @@ async function remixViaVercel(prompt, count, settings, sourceContext) {
   );
 
   // Start remix job — returns immediately with a job ID
-  sendRemixProgress(0, count, 'Starting remix job...');
+  sendRemixProgress(sid, 0, count, 'Starting remix job...');
 
   const referenceImages = Array.isArray(sourceContext.referenceImages) ? sourceContext.referenceImages : [];
 
@@ -894,6 +898,9 @@ async function remixViaVercel(prompt, count, settings, sourceContext) {
   }
 
   const { jobId } = await startResp.json();
+
+  // Register this remix as active so the sidebar can show spinners on history cards
+  activeRemixes.set(sid, { jobId, phase: 'starting', variation: 0, total: count, startedAt: Date.now() });
 
   // Compute version tree depth before polling so we can save incrementally
   const parentId = sourceContext.versionId || null;
@@ -988,7 +995,11 @@ async function remixViaVercel(prompt, count, settings, sourceContext) {
       : 'Working...';
 
     if (status.logUrl) lastLogUrl = status.logUrl;
-    sendRemixProgress(status.variation || 0, status.total || count, step, {
+
+    // Keep the active-remix map current for history-card spinners
+    activeRemixes.set(sid, { jobId, phase: status.phase, variation: status.variation || 0, total: status.total || count, startedAt: activeRemixes.get(sid)?.startedAt || Date.now() });
+
+    sendRemixProgress(sid, status.variation || 0, status.total || count, step, {
       turns: status.turns,
       logUrl: lastLogUrl,
       costUsd: status.costUsd,
@@ -1006,7 +1017,7 @@ async function remixViaVercel(prompt, count, settings, sourceContext) {
   if (alsoCommitToRepo && hasRepoCreds) {
     for (let i = 0; i < results.length; i++) {
       const r = results[i];
-      sendRemixProgress(i + 1, results.length, `Committing ${r.fileName} to repo...`);
+      sendRemixProgress(sid, i + 1, results.length, `Committing ${r.fileName} to repo...`);
       const htmlResp = await fetch(r.fileUrl);
       const htmlContent = await htmlResp.text();
       const commitResult = await commit(
@@ -1020,6 +1031,10 @@ async function remixViaVercel(prompt, count, settings, sourceContext) {
   }
 
   const versionIds = results.map(r => r.versionId).filter(Boolean);
+
+  // Clean up active-remix tracking on success
+  activeRemixes.delete(sid);
+  chrome.runtime.sendMessage({ action: 'remixJobEnded', snapshotId: sid, error: null }).catch(() => {});
 
   return { results, logUrl: lastLogUrl, versionIds };
 }
@@ -1064,7 +1079,13 @@ async function remixSnapshot(snapshotId, prompt, count, referenceImages, useBent
     useBento,
   };
 
-  return remixViaVercel(prompt, count, settings, sourceContext);
+  try {
+    return await remixViaVercel(prompt, count, settings, sourceContext);
+  } catch (err) {
+    activeRemixes.delete(sid);
+    chrome.runtime.sendMessage({ action: 'remixJobEnded', snapshotId: sid, error: err.message || 'Remix failed' }).catch(() => {});
+    throw err;
+  }
 }
 
 /**
@@ -1090,8 +1111,9 @@ async function remixFromVersion(versionId, prompt, count, referenceImages, useBe
   const html = await resp.text();
 
   const snapshot = await getSnapshot(version.snapshotId);
+  const sid = version.snapshotId;
   const sourceContext = {
-    snapshotId: version.snapshotId,
+    snapshotId: sid,
     versionId: version.id,
     html,
     snapshotName: snapshot?.snapshotName || 'snapshot',
@@ -1100,7 +1122,13 @@ async function remixFromVersion(versionId, prompt, count, referenceImages, useBe
     useBento,
   };
 
-  return remixViaVercel(prompt, count, settings, sourceContext);
+  try {
+    return await remixViaVercel(prompt, count, settings, sourceContext);
+  } catch (err) {
+    activeRemixes.delete(sid);
+    chrome.runtime.sendMessage({ action: 'remixJobEnded', snapshotId: sid, error: err.message || 'Remix failed' }).catch(() => {});
+    throw err;
+  }
 }
 
 /**
@@ -1171,6 +1199,15 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     getAllSnapshots()
       .then(snapshots => sendResponse({ snapshots }))
       .catch(err => sendResponse({ error: err.message }));
+    return true;
+  }
+
+  if (msg.action === 'getActiveRemixes') {
+    sendResponse({
+      active: Array.from(activeRemixes.entries()).map(([snapshotId, v]) => ({
+        snapshotId, phase: v.phase, variation: v.variation, total: v.total,
+      })),
+    });
     return true;
   }
 

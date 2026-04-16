@@ -150,6 +150,14 @@ body {
   align-items: baseline;
   justify-content: space-between;
   margin-bottom: 6px;
+  cursor: pointer;
+  border-radius: var(--radius-md, 6px);
+  padding: 2px 4px;
+  margin: -2px -4px 6px;
+  transition: background 0.15s;
+}
+.history-snapshot-header:hover {
+  background: rgba(0, 0, 0, 0.04);
 }
 
 .history-snapshot-name {
@@ -175,6 +183,32 @@ body {
   border-top: 1px solid rgba(0, 0, 0, 0.06);
   padding-top: 6px;
   margin-top: 4px;
+}
+
+/* Active-remix spinner on history cards */
+.history-snapshot-spinner {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  padding-left: 8px;
+  flex-shrink: 0;
+}
+.history-spinner-dot {
+  width: 10px;
+  height: 10px;
+  border: 2px solid var(--color-primary, #6366f1);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: history-spin 0.8s linear infinite;
+}
+@keyframes history-spin {
+  to { transform: rotate(360deg); }
+}
+.history-spinner-label {
+  font-size: 10px;
+  color: var(--color-primary, #6366f1);
+  white-space: nowrap;
 }
 
 /* Toast notification */

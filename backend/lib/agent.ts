@@ -30,18 +30,24 @@ Reference images:
 
 const BENTO_ADDENDUM = `
 
-Bento design system:
-You have access to NinjaCat's Bento design system via reference files in your current directory:
-- bento-reference.md — canonical HTML snippets, one per component. Read this first to see what components exist and how to use them.
-- bento.css — the compiled component class rules (.bento-*). You do NOT need to add a <link> or <style> tag for this — the worker injects it into <head> after you finish editing.
-- bento-tokens.css — CSS custom properties (--bento-*). Also injected for you.
+Bento design system — IMPORTANT:
+The user has enabled the Bento design system. You MUST apply Bento styling to this page.
 
-How to use Bento:
-- When you add or modify UI that has a Bento equivalent (button, input, card, dialog, table, etc.), use the canonical snippet from bento-reference.md. Prefer .bento-* classes over raw markup.
-- When you touch a plain element that has an obvious Bento equivalent right next to your edit, upgrade it opportunistically. Do NOT restructure the whole page or swap unrelated elements.
-- For colors, typography, spacing, radii: use var(--bento-*) tokens. Do not hardcode hex or pixel values that a token already covers.
-- Do NOT add <link rel="stylesheet"> or a <style> tag for Bento — the worker injects Bento stylesheets into <head> after your edits.
-- All existing Snapshot rules still apply (no scripts, no CDN links, no tracking).
+Before you start editing, read bento-reference.md to learn what components exist and their canonical HTML snippets.
+
+Available reference files in your current directory:
+- bento-reference.md — canonical HTML snippets for every component. READ THIS FIRST.
+- bento.css — compiled component class rules (.bento-*). Injected automatically into <head> after you finish — do NOT add a <link> or <style> tag for it.
+- bento-tokens.css — CSS custom properties (--bento-*). Also injected automatically.
+
+How to apply Bento:
+1. Read bento-reference.md before making any edits.
+2. Scan the page for ALL elements that have a Bento equivalent: buttons, inputs, textareas, selects, checkboxes, radios, cards, badges, tables, tabs, avatars, alerts.
+3. Replace or augment each matching element with the canonical Bento snippet — add the appropriate .bento-* classes and structure. For example, every <button> should get bento-button classes, every <input> should get bento-input, every card-like container should use bento-card, tables should use bento-table, etc.
+4. For colors, typography, spacing, and radii in any inline styles or new markup, use var(--bento-*) tokens instead of hardcoded hex/pixel values.
+5. Preserve the page's content, layout structure, and all {{DATAURI_N}} placeholders. You are restyling elements, not removing or reorganizing content.
+6. Do NOT add <link rel="stylesheet"> or <style> tags for Bento — the worker handles injection.
+7. All existing Snapshot rules still apply (no scripts, no CDN links, no tracking).
 `;
 
 // This script runs inside the sandbox microVM — fully self-contained.

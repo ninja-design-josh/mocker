@@ -72,6 +72,9 @@ let currentBlobUrl = null;
 let activeTab = 'capture'; // 'capture' or 'history'
 let lastCaptureSection = 'captureForm'; // remember which capture section was showing
 
+// Track spinner elements for active remixes on history cards, keyed by snapshotId
+const historySpinners = new Map();
+
 // Reference image state: items = [{ id, name, mediaType, previewUrl, url?, uploading, error? }]
 // Only items with `url` set are sent to the backend.
 let referenceImages = [];
@@ -438,11 +441,35 @@ tabHistory.addEventListener('click', () => switchTab('history'));
 
 // ── Full history view ─────────────────────────────────────────────────
 
+function buildHistorySpinner(variation, total) {
+  const wrap = document.createElement('span');
+  wrap.className = 'history-snapshot-spinner';
+  wrap.addEventListener('click', (e) => e.stopPropagation()); // don't trigger card restore
+  const dot = document.createElement('span');
+  dot.className = 'history-spinner-dot';
+  wrap.appendChild(dot);
+  const label = document.createElement('span');
+  label.className = 'history-spinner-label';
+  label.textContent = variation && total ? `Remixing ${variation}/${total}…` : 'Remixing…';
+  wrap.appendChild(label);
+  return wrap;
+}
+
 async function loadFullHistory() {
-  const resp = await chrome.runtime.sendMessage({ action: 'getSnapshotsWithVersions' });
+  const [resp, remixResp] = await Promise.all([
+    chrome.runtime.sendMessage({ action: 'getSnapshotsWithVersions' }),
+    chrome.runtime.sendMessage({ action: 'getActiveRemixes' }),
+  ]);
   if (!resp.snapshots) return;
 
   historyList.innerHTML = '';
+  historySpinners.clear();
+
+  // Build lookup of active remix jobs
+  const activeInfo = new Map();
+  if (remixResp?.active) {
+    for (const a of remixResp.active) activeInfo.set(a.snapshotId, a);
+  }
 
   if (!resp.snapshots.length) {
     historyEmpty.hidden = false;
@@ -453,8 +480,9 @@ async function loadFullHistory() {
   for (const s of resp.snapshots) {
     const card = document.createElement('div');
     card.className = 'history-snapshot-card';
+    card._snapshotId = s.id;
 
-    // Header: name + date
+    // Header: name + date — clickable to restore capture session
     const header = document.createElement('div');
     header.className = 'history-snapshot-header';
 
@@ -468,6 +496,20 @@ async function loadFullHistory() {
 
     header.appendChild(name);
     header.appendChild(date);
+
+    // Spinner for active remix jobs
+    if (activeInfo.has(s.id)) {
+      const a = activeInfo.get(s.id);
+      const spinner = buildHistorySpinner(a.variation, a.total);
+      header.appendChild(spinner);
+      historySpinners.set(s.id, spinner);
+    }
+
+    // Click header to restore this snapshot in the capture tab
+    header.addEventListener('click', () => {
+      loadSnapshotWorkspace(s.id, s).then(() => switchTab('capture'));
+    });
+
     card.appendChild(header);
 
     // Snapshot actions: Download + Preview
@@ -1108,40 +1150,75 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && !lightboxEl.hidden) closeLightbox();
 });
 
-// Listen for remix progress updates
+// Listen for remix progress updates — scoped to the active snapshot
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg.action === 'remixProgress') {
-    const costStr = msg.costUsd != null ? ` — $${msg.costUsd.toFixed(2)}` : '';
-    remixStatus.textContent = msg.text + costStr;
-
-    // Render live turns feed
-    if (msg.turns && msg.turns.length) {
-      remixTurns.hidden = false;
-      remixTurns.innerHTML = '';
-      for (const t of msg.turns) {
-        if (t.type !== 'assistant') continue;
-        const el = document.createElement('div');
-        el.className = 'turn-entry';
-        const label = document.createElement('span');
-        label.className = 'turn-label';
-        const tools = (t.tools || []).join(', ');
-        label.textContent = `Turn ${t.turn}` + (tools ? ` [${tools}]` : '');
-        el.appendChild(label);
-        if (t.thinking) {
-          const think = document.createElement('div');
-          think.className = 'turn-thinking';
-          think.textContent = t.thinking;
-          el.appendChild(think);
+    // Update history-card spinner regardless of which snapshot is active
+    if (msg.snapshotId != null) {
+      const spinner = historySpinners.get(msg.snapshotId);
+      if (spinner) {
+        const label = spinner.querySelector('.history-spinner-label');
+        if (label) label.textContent = msg.current && msg.total ? `Remixing ${msg.current}/${msg.total}…` : 'Remixing…';
+      } else {
+        // Remix started while history was open — lazily add spinner to the rendered card
+        const cards = historyList.querySelectorAll('.history-snapshot-card');
+        for (const card of cards) {
+          if (card._snapshotId === msg.snapshotId) {
+            const header = card.querySelector('.history-snapshot-header');
+            if (header) {
+              const newSpinner = buildHistorySpinner(msg.current, msg.total);
+              header.appendChild(newSpinner);
+              historySpinners.set(msg.snapshotId, newSpinner);
+            }
+            break;
+          }
         }
-        if (t.text) {
-          const text = document.createElement('div');
-          text.className = 'turn-text';
-          text.textContent = t.text;
-          el.appendChild(text);
-        }
-        remixTurns.appendChild(el);
       }
-      remixTurns.scrollTop = remixTurns.scrollHeight;
+    }
+
+    // Only update the capture-screen remix status if this message is for the active snapshot
+    if (msg.snapshotId == null || msg.snapshotId === currentSnapshotId) {
+      const costStr = msg.costUsd != null ? ` — $${msg.costUsd.toFixed(2)}` : '';
+      remixStatus.textContent = msg.text + costStr;
+
+      // Render live turns feed
+      if (msg.turns && msg.turns.length) {
+        remixTurns.hidden = false;
+        remixTurns.innerHTML = '';
+        for (const t of msg.turns) {
+          if (t.type !== 'assistant') continue;
+          const el = document.createElement('div');
+          el.className = 'turn-entry';
+          const label = document.createElement('span');
+          label.className = 'turn-label';
+          const tools = (t.tools || []).join(', ');
+          label.textContent = `Turn ${t.turn}` + (tools ? ` [${tools}]` : '');
+          el.appendChild(label);
+          if (t.thinking) {
+            const think = document.createElement('div');
+            think.className = 'turn-thinking';
+            think.textContent = t.thinking;
+            el.appendChild(think);
+          }
+          if (t.text) {
+            const text = document.createElement('div');
+            text.className = 'turn-text';
+            text.textContent = t.text;
+            el.appendChild(text);
+          }
+          remixTurns.appendChild(el);
+        }
+        remixTurns.scrollTop = remixTurns.scrollHeight;
+      }
+    }
+  }
+
+  // Clear spinner when a remix job ends
+  if (msg.action === 'remixJobEnded' && msg.snapshotId != null) {
+    const spinner = historySpinners.get(msg.snapshotId);
+    if (spinner) {
+      spinner.remove();
+      historySpinners.delete(msg.snapshotId);
     }
   }
 });
