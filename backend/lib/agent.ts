@@ -31,7 +31,7 @@ Reference images:
 const BENTO_ADDENDUM = `
 
 Bento design system:
-You have access to NinjaCat's Bento design system via three files in your current directory:
+You have access to NinjaCat's Bento design system via reference files in your current directory:
 - bento-reference.md — canonical HTML snippets, one per component. Read this first to see what components exist and how to use them.
 - bento.css — the compiled component class rules (.bento-*). You do NOT need to add a <link> or <style> tag for this — the worker injects it into <head> after you finish editing.
 - bento-tokens.css — CSS custom properties (--bento-*). Also injected for you.
@@ -40,7 +40,7 @@ How to use Bento:
 - When you add or modify UI that has a Bento equivalent (button, input, card, dialog, table, etc.), use the canonical snippet from bento-reference.md. Prefer .bento-* classes over raw markup.
 - When you touch a plain element that has an obvious Bento equivalent right next to your edit, upgrade it opportunistically. Do NOT restructure the whole page or swap unrelated elements.
 - For colors, typography, spacing, radii: use var(--bento-*) tokens. Do not hardcode hex or pixel values that a token already covers.
-- Do NOT add <link rel="stylesheet"> or a <style> tag for Bento — the worker injects both bento-tokens.css and bento.css into <head> after your edits.
+- Do NOT add <link rel="stylesheet"> or a <style> tag for Bento — the worker injects Bento stylesheets into <head> after your edits.
 - All existing Snapshot rules still apply (no scripts, no CDN links, no tracking).
 `;
 
