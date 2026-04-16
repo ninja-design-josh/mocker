@@ -11,15 +11,22 @@ remix agent when the "Use Bento" sidebar toggle is on.
   built from tokens. Every selector is `.bento-*`-scoped.
 - `bento-reference.md` — Component catalog with canonical HTML snippets
   the agent copies from.
+- `bento-safety.css` — Defensive containment rules. Injected FIRST in
+  the remix output (before tokens and components) so Bento elements
+  can shrink inside flex rows and never exceed their parent's width.
+  Targets `.bento-*` classes and self-contained media tags only — no
+  universal resets, no rules on the captured page's own markup.
 
 ## How it reaches the agent
 
-`backend/api/remix.ts` reads these three files from disk on each `useBento:
+`backend/api/remix.ts` reads these four files from disk on each `useBento:
 true` request and passes them to `startRemixJob` in `backend/lib/agent.ts`.
 The sandbox worker writes them into each variation's dir alongside
-`page.html`, then the agent Reads/Greps them directly. After the agent
-finishes editing, the worker injects `<style data-bento="tokens">` and
-`<style data-bento="components">` into the modified page's `<head>`.
+`page.html`, then the agent Reads/Greps `bento-reference.md` directly.
+After the agent finishes editing, the worker injects three `<style>`
+blocks into `<head>`, in this order: `data-bento="safety"`,
+`data-bento="tokens"`, `data-bento="components"`. Safety first so
+component-specific sizing rules override the defensive defaults.
 
 ## Refreshing from Bento
 
