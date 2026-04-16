@@ -170,6 +170,7 @@ try {
     let bentoInjection = null;
     if (config.bento) {
       const injection =
+        '<style data-bento="safety">' + config.bento.safetyCss + '</style>' +
         '<style data-bento="tokens">' + config.bento.tokensCss + '</style>' +
         '<style data-bento="components">' + config.bento.componentsCss + '</style>';
 
