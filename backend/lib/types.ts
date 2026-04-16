@@ -24,6 +24,7 @@ export interface BentoReference {
   tokensCss: string;
   componentsCss: string;
   referenceMd: string;
+  safetyCss: string;
 }
 
 export interface StoreRequest {
