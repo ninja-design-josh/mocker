@@ -173,39 +173,90 @@ function isSameOrigin(url, baseUrl) {
   }
 }
 
-/**
- * Fetch a resource and return it as a data URI.
- * Returns null if the fetch fails (graceful degradation).
- */
-async function fetchAsDataUri(url) {
-  try {
-    const resp = await fetch(url, { credentials: 'omit' });
-    if (!resp.ok) return null;
+// Image downsampling config — tune here.
+// - Rasters larger than MIN_OPTIMIZE_BYTES are candidates.
+// - If a candidate's width exceeds MAX_IMAGE_WIDTH, it's resized preserving aspect ratio.
+// - Candidates are always re-encoded to WebP at OPTIMIZED_QUALITY; if the
+//   re-encode ends up larger than the original, we keep the original.
+// - GIFs skipped so animation is preserved. SVG/fonts/CSS skipped (not raster).
+const DOWNSAMPLEABLE_MIMES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/bmp']);
+const MIN_OPTIMIZE_BYTES = 50 * 1024;      // skip icons/sprites below this
+const MAX_IMAGE_WIDTH = 1600;
+const OPTIMIZED_QUALITY = 0.85;
 
-    const contentType = resp.headers.get('content-type') || guessMimeType(url);
-    const buffer = await resp.arrayBuffer();
-    const base64 = arrayBufferToBase64(buffer);
-    const mime = contentType.split(';')[0].trim();
-    return `data:${mime};base64,${base64}`;
+/**
+ * Re-encode a raster image to a smaller WebP if beneficial.
+ * Returns { buffer, mime } of the optimized image, or null to keep the original.
+ * Never throws; on any failure returns null.
+ */
+async function tryDownsampleImage(buffer, mime) {
+  if (!DOWNSAMPLEABLE_MIMES.has(mime)) return null;
+  if (buffer.byteLength < MIN_OPTIMIZE_BYTES) return null;
+
+  try {
+    const srcBlob = new Blob([buffer], { type: mime });
+    const bitmap = await createImageBitmap(srcBlob);
+    const scale = Math.min(1, MAX_IMAGE_WIDTH / bitmap.width);
+    const w = Math.max(1, Math.round(bitmap.width * scale));
+    const h = Math.max(1, Math.round(bitmap.height * scale));
+
+    const canvas = new OffscreenCanvas(w, h);
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(bitmap, 0, 0, w, h);
+    bitmap.close?.();
+
+    const webp = await canvas.convertToBlob({ type: 'image/webp', quality: OPTIMIZED_QUALITY });
+    if (webp.size >= buffer.byteLength) return null; // no win — keep original
+
+    const newBuffer = await webp.arrayBuffer();
+    return { buffer: newBuffer, mime: 'image/webp' };
   } catch {
     return null;
   }
 }
 
 /**
- * Fetch a resource and upload it to Vercel Blob, returning the public URL.
- * Returns null if the fetch or upload fails (graceful degradation).
+ * Fetch a raw resource and run it through the image optimizer when applicable.
+ * Returns { buffer, mime } or null on failure.
  */
-async function fetchAndUploadResource(url, vercelUrl, vercelApiKey) {
+async function fetchResourceBytes(url) {
   try {
     const resp = await fetch(url, { credentials: 'omit' });
     if (!resp.ok) return null;
+
     const contentType = resp.headers.get('content-type') || guessMimeType(url);
     const mime = contentType.split(';')[0].trim();
     const buffer = await resp.arrayBuffer();
+
+    const optimized = await tryDownsampleImage(buffer, mime);
+    return optimized || { buffer, mime };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Fetch a resource and return it as a data URI (optionally downsampled).
+ * Returns null if the fetch fails (graceful degradation).
+ */
+async function fetchAsDataUri(url) {
+  const res = await fetchResourceBytes(url);
+  if (!res) return null;
+  const base64 = arrayBufferToBase64(res.buffer);
+  return `data:${res.mime};base64,${base64}`;
+}
+
+/**
+ * Fetch a resource, optionally downsample it, and upload to Vercel Blob.
+ * Returns the public URL, or null if the fetch or upload fails.
+ */
+async function fetchAndUploadResource(url, vercelUrl, vercelApiKey) {
+  const res = await fetchResourceBytes(url);
+  if (!res) return null;
+  try {
     const urlPath = new URL(url).pathname.split('/').pop() || 'resource';
     const pathname = `mocker/assets/${urlPath}`;
-    const blob = new Blob([buffer], { type: mime });
+    const blob = new Blob([res.buffer], { type: res.mime });
     return await uploadToBlob(vercelUrl, vercelApiKey, pathname, blob);
   } catch {
     return null;
@@ -850,24 +901,29 @@ async function remixViaVercel(prompt, count, settings, sourceContext) {
   const provider = settings.provider || 'gitlab';
   const commit = provider === 'github' ? githubCommit : gitlabCommit;
 
+  const tRemixStart = performance.now();
   const { strippedHtml, dataUriMap } = stripDataUris(sourceContext.html);
+  const tStripDone = performance.now();
   const snapshotName = sourceContext.snapshotName;
   const sid = sourceContext.snapshotId;
 
-  // Upload stripped HTML and data URI map to Blob
+  // Upload stripped HTML and data URI map to Blob in parallel
   sendRemixProgress(sid, 0, count, 'Uploading snapshot to backend...');
 
-  const snapshotBlobUrl = await uploadToBlob(
-    vercelUrl, vercelApiKey,
-    `mocker/${snapshotName}-stripped.html`,
-    new Blob([strippedHtml], { type: 'text/html' })
-  );
-
-  const mapBlobUrl = await uploadToBlob(
-    vercelUrl, vercelApiKey,
-    `mocker/${snapshotName}-map.json`,
-    new Blob([JSON.stringify(dataUriMap)], { type: 'application/json' })
-  );
+  const [snapshotBlobUrl, mapBlobUrl] = await Promise.all([
+    uploadToBlob(
+      vercelUrl, vercelApiKey,
+      `mocker/${snapshotName}-stripped.html`,
+      new Blob([strippedHtml], { type: 'text/html' })
+    ),
+    uploadToBlob(
+      vercelUrl, vercelApiKey,
+      `mocker/${snapshotName}-map.json`,
+      new Blob([JSON.stringify(dataUriMap)], { type: 'application/json' })
+    ),
+  ]);
+  const tUploadsDone = performance.now();
+  console.log(`[mocker.remix] strip=${(tStripDone - tRemixStart).toFixed(0)}ms uploads=${(tUploadsDone - tStripDone).toFixed(0)}ms`);
 
   // Start remix job — returns immediately with a job ID
   sendRemixProgress(sid, 0, count, 'Starting remix job...');
@@ -939,30 +995,45 @@ async function remixViaVercel(prompt, count, settings, sourceContext) {
     }).catch(() => {});
   }
 
-  // Track and save new results from status polling
-  async function processNewResults(statusResults) {
+  // Track and save new results from status polling.
+  // IDB writes run in the background so the next poll isn't gated on disk I/O;
+  // pendingSaves is awaited before the function returns so nothing gets dropped.
+  const pendingSaves = [];
+  function processNewResults(statusResults) {
     if (!statusResults) return;
     for (const r of statusResults) {
       if (!results.find(x => x.fileName === r.fileName)) {
         const entry = { fileName: r.fileName, fileUrl: r.blobUrl, variationNum: r.variationNumber || results.length + 1 };
         results.push(entry);
-        await saveResultAsVersion(entry);
+        pendingSaves.push(saveResultAsVersion(entry).catch(err => {
+          console.warn('[mocker.remix] saveResultAsVersion failed:', err);
+        }));
       }
     }
   }
 
-  // Poll for status — sandbox runs independently, no serverless function timeout
+  // Poll for status — sandbox runs independently, no serverless function timeout.
+  // Adaptive cadence: start fast so the UI picks up real phases quickly,
+  // then back off to 3s steady-state so we don't hammer the backend.
   const results = [];
   const maxPollMs = 45 * 60 * 1000;
   const pollStart = Date.now();
+  let pollIndex = 0;
+
+  function nextPollDelayMs(i) {
+    if (i < 3) return 500;   // catch sandbox boot / download quickly
+    if (i < 6) return 1500;  // early-install phase
+    return 3000;              // steady-state
+  }
 
   while (true) {
-    await new Promise(r => setTimeout(r, 3000));
+    await new Promise(r => setTimeout(r, nextPollDelayMs(pollIndex++)));
 
     if (Date.now() - pollStart > maxPollMs) {
       throw new Error('Remix timed out after 45 minutes');
     }
 
+    const tPollStart = performance.now();
     const statusResp = await fetch(
       `${vercelUrl}/api/remix-status?jobId=${encodeURIComponent(jobId)}`,
       { headers: { 'Authorization': `Bearer ${vercelApiKey}` } }
@@ -974,15 +1045,21 @@ async function remixViaVercel(prompt, count, settings, sourceContext) {
     }
 
     const status = await statusResp.json();
+    const tPollEnd = performance.now();
+    if (tPollEnd - tPollStart > 2000) {
+      console.log(`[mocker.remix] slow status poll: ${(tPollEnd - tPollStart).toFixed(0)}ms phase=${status.phase}`);
+    }
 
     if (status.phase === 'done') {
-      await processNewResults(status.results);
+      processNewResults(status.results);
+      await Promise.all(pendingSaves);
       break;
     }
 
     if (status.phase === 'error') {
       // Still save any partial results before throwing
-      await processNewResults(status.results);
+      processNewResults(status.results);
+      await Promise.all(pendingSaves);
       throw new Error(status.error || 'Remix failed');
     }
 
@@ -1006,19 +1083,19 @@ async function remixViaVercel(prompt, count, settings, sourceContext) {
       costUsd: status.costUsd,
     });
 
-    // Save completed variations immediately
-    await processNewResults(status.results);
+    // Save completed variations immediately (non-blocking)
+    processNewResults(status.results);
   }
 
-  // Optionally commit each remix to Git repo
+  // Optionally commit each remix to Git repo (in parallel — distinct paths)
   const hasRepoCreds = settings.provider === 'github'
     ? !!(settings.githubToken && settings.githubOwner && settings.githubRepo)
     : !!(settings.gitlabUrl && settings.accessToken && settings.projectId);
 
   if (alsoCommitToRepo && hasRepoCreds) {
-    for (let i = 0; i < results.length; i++) {
-      const r = results[i];
-      sendRemixProgress(sid, i + 1, results.length, `Committing ${r.fileName} to repo...`);
+    sendRemixProgress(sid, 0, results.length, `Committing ${results.length} variation${results.length === 1 ? '' : 's'} to repo...`);
+    const tCommitStart = performance.now();
+    await Promise.all(results.map(async (r) => {
       const htmlResp = await fetch(r.fileUrl);
       const htmlContent = await htmlResp.text();
       const commitResult = await commit(
@@ -1028,10 +1105,12 @@ async function remixViaVercel(prompt, count, settings, sourceContext) {
         r.fileName
       );
       r.repoUrl = commitResult.fileUrl;
-    }
+    }));
+    console.log(`[mocker.remix] repo commit (${results.length} variations in parallel)=${(performance.now() - tCommitStart).toFixed(0)}ms`);
   }
 
   const versionIds = results.map(r => r.versionId).filter(Boolean);
+  console.log(`[mocker.remix] total=${(performance.now() - tRemixStart).toFixed(0)}ms variations=${results.length}`);
 
   // Clean up active-remix tracking on success
   activeRemixes.delete(sid);

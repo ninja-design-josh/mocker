@@ -46,6 +46,7 @@ const planQuestionsEl = document.getElementById('plan-questions');
 const planConfirmBtn = document.getElementById('plan-confirm-btn');
 const planSkipBtn = document.getElementById('plan-skip-btn');
 const planCancelBtn = document.getElementById('plan-cancel-btn');
+const remixComposerSection = document.getElementById('remix-composer-section');
 const remixStatus = document.getElementById('remix-status');
 const remixTurns = document.getElementById('remix-turns');
 const remixSourceName = document.getElementById('remix-source-name');
@@ -1077,6 +1078,7 @@ function clearFocusAreas() {
 }
 
 function renderFocusChips() {
+  if (!focusChipsContainer) return;
   if (!focusAreas.length) {
     focusChipsContainer.hidden = true;
     focusChipsContainer.innerHTML = '';
@@ -1182,6 +1184,7 @@ function resetRemixState() {
   if (planPanel) planPanel.hidden = true;
   if (planBullets) planBullets.value = '';
   if (planQuestionsEl) planQuestionsEl.innerHTML = '';
+  if (remixComposerSection) remixComposerSection.hidden = false;
   pendingPlanContext = null;
   resetReferenceImages();
   clearFocusAreas();
@@ -1274,11 +1277,13 @@ function renderPlanPanel(plan, questions) {
     planQuestionsEl.appendChild(row);
   });
 
+  remixComposerSection.hidden = true;
   planPanel.hidden = false;
 }
 
 function hidePlanPanel() {
   planPanel.hidden = true;
+  remixComposerSection.hidden = false;
   planBullets.value = '';
   planQuestionsEl.innerHTML = '';
   pendingPlanContext = null;

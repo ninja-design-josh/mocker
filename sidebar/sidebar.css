@@ -18,6 +18,7 @@
   --radius-lg: 10px;
   --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
   --shadow-card-hover: 0 4px 12px rgba(0, 0, 0, 0.08), 0 2px 4px rgba(0, 0, 0, 0.04);
+  --color-surface-secondary: #e5e5ea;
 }
 
 * {
@@ -101,7 +102,7 @@ body {
 .header-tabs {
   display: flex;
   gap: 2px;
-  background: #e5e5ea;
+  background: var(--color-surface-secondary);
   border-radius: var(--radius);
   padding: 2px;
 }
@@ -142,7 +143,6 @@ body {
   padding: 12px 14px;
   box-shadow: var(--shadow-card);
   margin-bottom: 10px;
-  border-left: 3px solid var(--color-primary);
 }
 
 .history-snapshot-header {
@@ -280,11 +280,11 @@ body {
 }
 
 .card-snapshot {
-  border-left: 3px solid var(--color-primary);
+  border: 1px solid var(--color-border);
 }
 
 .card-error {
-  border-left: 3px solid var(--color-error);
+  border: 1px solid var(--color-error-border);
 }
 
 .card-text {
@@ -368,10 +368,8 @@ body {
 
 label {
   display: block;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
   color: var(--color-text-secondary);
   margin-bottom: 4px;
 }
@@ -395,7 +393,7 @@ input:focus {
 /* Branch toggle */
 .branch-toggle {
   display: flex;
-  background: #e5e5ea;
+  background: var(--color-surface-secondary);
   border-radius: var(--radius);
   padding: 2px;
   margin-bottom: 6px;
@@ -439,21 +437,15 @@ input:focus {
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
-  transition: transform 0.15s, box-shadow 0.15s, opacity 0.15s;
+  transition: background 0.15s, opacity 0.15s;
   text-decoration: none;
   display: inline-flex;
   align-items: center;
   justify-content: center;
 }
 
-.btn:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-}
-
 .btn:active {
-  transform: translateY(0);
-  box-shadow: none;
+  opacity: 0.8;
 }
 
 .btn:disabled {
@@ -483,14 +475,18 @@ input:focus {
 }
 
 .btn-secondary {
-  background: #e5e5ea;
+  background: var(--color-surface-secondary);
   color: var(--color-text);
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: var(--color-border);
 }
 
 /* Progress */
 .progress-bar {
   height: 5px;
-  background: #e5e5ea;
+  background: var(--color-surface-secondary);
   border-radius: 3px;
   overflow: hidden;
   margin-bottom: 10px;
@@ -525,10 +521,8 @@ input:focus {
 
 /* Result */
 .result-label {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
   color: var(--color-text-secondary);
   margin-bottom: 3px;
 }
@@ -559,11 +553,11 @@ input:focus {
   gap: 8px;
   margin-bottom: 10px;
   padding: 6px 10px;
-  background: #e0e7ff;
-  border: 1px solid #c7d2fe;
+  background: rgba(99, 102, 241, 0.08);
+  border: 1px solid rgba(99, 102, 241, 0.2);
   border-radius: var(--radius);
   font-size: 12px;
-  color: #4338ca;
+  color: var(--color-primary);
 }
 
 .remix-source-label {
@@ -573,7 +567,7 @@ input:focus {
 .remix-source-clear {
   border: none;
   background: transparent;
-  color: #4338ca;
+  color: var(--color-primary);
   cursor: pointer;
   font-size: 14px;
   line-height: 1;
@@ -584,7 +578,7 @@ input:focus {
 
 .remix-source-clear:hover {
   opacity: 1;
-  background: rgba(67, 56, 202, 0.1);
+  background: rgba(99, 102, 241, 0.1);
 }
 
 textarea {
@@ -756,13 +750,11 @@ textarea:focus {
 .turn-label {
   font-weight: 600;
   color: var(--color-text-secondary);
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.3px;
+  font-size: 11px;
 }
 
 .turn-thinking {
-  color: #7c3aed;
+  color: var(--color-primary);
   font-style: italic;
   margin-top: 2px;
   white-space: pre-wrap;
@@ -1111,7 +1103,7 @@ textarea:focus {
 
 /* ── Plan panel (Plan first toggle) ─────────────────────────── */
 .plan-panel {
-  margin-top: 12px;
+  margin-top: 0;
   padding: 12px;
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
@@ -1134,7 +1126,7 @@ textarea:focus {
   color: var(--color-text-muted);
 }
 .plan-panel-label {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--color-text-muted);
   margin-bottom: -4px;
 }

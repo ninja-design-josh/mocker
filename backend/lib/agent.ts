@@ -28,27 +28,30 @@ Reference images:
 - Order of the images is not meaningful — they are a set, not a sequence.
 - The images are external references, not assets to embed in page.html.`;
 
-const BENTO_ADDENDUM = `
+// Built dynamically in startRemixJob so we can inline the Bento reference
+// directly into the system prompt. This lets prompt caching warm up the
+// component catalog once and saves the agent a ~17KB Read on turn 1.
+function buildBentoAddendum(referenceMd: string): string {
+  return `
 
 Bento design system — IMPORTANT:
 The user has enabled the Bento design system. You MUST apply Bento styling to this page.
 
-Before you start editing, read bento-reference.md to learn what components exist and their canonical HTML snippets.
-
-Available reference files in your current directory:
-- bento-reference.md — canonical HTML snippets for every component. READ THIS FIRST.
-- bento.css — compiled component class rules (.bento-*). Injected automatically into <head> after you finish — do NOT add a <link> or <style> tag for it.
-- bento-tokens.css — CSS custom properties (--bento-*). Also injected automatically.
+The full Bento component catalog (with canonical HTML snippets for every component) is included inline below. You do NOT need to read any file to see it — treat this section as the canonical reference.
 
 How to apply Bento:
-1. Read bento-reference.md before making any edits.
-2. Scan the page for ALL elements that have a Bento equivalent: buttons, inputs, textareas, selects, checkboxes, radios, cards, badges, tables, tabs, avatars, alerts.
-3. Replace or augment each matching element with the canonical Bento snippet — add the appropriate .bento-* classes and structure. For example, every <button> should get bento-button classes, every <input> should get bento-input, every card-like container should use bento-card, tables should use bento-table, etc.
-4. For colors, typography, spacing, and radii in any inline styles or new markup, use var(--bento-*) tokens instead of hardcoded hex/pixel values.
-5. Preserve the page's content, layout structure, and all {{DATAURI_N}} placeholders. You are restyling elements, not removing or reorganizing content.
-6. Do NOT add <link rel="stylesheet"> or <style> tags for Bento — the worker handles injection.
-7. All existing Snapshot rules still apply (no scripts, no CDN links, no tracking).
+1. Scan the page for ALL elements that have a Bento equivalent: buttons, inputs, textareas, selects, checkboxes, radios, cards, badges, tables, tabs, avatars, alerts.
+2. Replace or augment each matching element with the canonical Bento snippet — add the appropriate .bento-* classes and structure. For example, every <button> should get bento-button classes, every <input> should get bento-input, every card-like container should use bento-card, tables should use bento-table, etc.
+3. For colors, typography, spacing, and radii in any inline styles or new markup, use var(--bento-*) tokens instead of hardcoded hex/pixel values.
+4. Preserve the page's content, layout structure, and all {{DATAURI_N}} placeholders. You are restyling elements, not removing or reorganizing content.
+5. Do NOT add <link rel="stylesheet"> or <style> tags for Bento — the worker injects bento.css, bento-tokens.css, and bento-safety.css automatically into <head> after your edits.
+6. All existing Snapshot rules still apply (no scripts, no CDN links, no tracking).
+
+=== BENTO COMPONENT CATALOG (bento-reference.md) ===
+${referenceMd}
+=== END BENTO COMPONENT CATALOG ===
 `;
+}
 
 const FOCUS_ADDENDUM = `
 
@@ -64,16 +67,25 @@ The user has selected specific elements on the page to modify. A reference image
 // It downloads source files from Blob, installs the Agent SDK, runs the agent
 // for each variation, restores data URIs, and uploads results to Blob.
 // Status is written to /vercel/sandbox/status.json for polling.
+//
+// Perf notes:
+// - Download + install run in parallel (install is the long pole at 10-20s).
+// - npm install uses --prefer-offline --no-audit --no-fund --no-save --loglevel=silent --no-package-lock
+//   to skip the registry metadata checks and lockfile writes.
+// - Per-variation Bento files are written once at a shared path and only
+//   page.html is copied per variation.
+// - Post-agent blob uploads (turn log + final HTML) run in parallel.
 const WORKER_SCRIPT = `
-import { execSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { writeFileSync, readFileSync, mkdirSync } from 'node:fs';
 
 const config = JSON.parse(readFileSync('/vercel/sandbox/worker-config.json', 'utf-8'));
 
 const results = [];
+const timings = { jobStart: Date.now() };
 
 function updateStatus(status) {
-  writeFileSync('/vercel/sandbox/status.json', JSON.stringify(Object.assign({ updatedAt: Date.now() }, status)));
+  writeFileSync('/vercel/sandbox/status.json', JSON.stringify(Object.assign({ updatedAt: Date.now(), timings }, status)));
 }
 
 function restoreDataUris(html, dataUriMap) {
@@ -82,27 +94,60 @@ function restoreDataUris(html, dataUriMap) {
   });
 }
 
-try {
-  updateStatus({ phase: 'downloading' });
-  const htmlResp = await fetch(config.snapshotBlobUrl);
-  const strippedHtml = await htmlResp.text();
-  const mapResp = await fetch(config.dataUriMapBlobUrl);
-  const dataUriMap = await mapResp.json();
-
-  updateStatus({ phase: 'installing' });
-  execSync('npm install @anthropic-ai/claude-agent-sdk @vercel/blob', {
-    cwd: '/vercel/sandbox',
-    stdio: 'pipe',
+function npmInstallAsync() {
+  return new Promise((resolve, reject) => {
+    const proc = spawn('npm', [
+      'install',
+      '@anthropic-ai/claude-agent-sdk',
+      '@vercel/blob',
+      '--prefer-offline',
+      '--no-audit',
+      '--no-fund',
+      '--no-save',
+      '--no-package-lock',
+      '--loglevel=silent',
+    ], { cwd: '/vercel/sandbox', stdio: 'pipe' });
+    proc.on('exit', (code) => code === 0 ? resolve() : reject(new Error('npm install exited ' + code)));
+    proc.on('error', reject);
   });
+}
+
+try {
+  updateStatus({ phase: 'installing' });
+
+  // Kick off install + blob downloads in parallel. npm install is the long
+  // pole (~10-20s); the blob fetches add ~100-300ms each on top.
+  const installStart = Date.now();
+  const downloadStart = Date.now();
+  const [, strippedHtml, dataUriMap] = await Promise.all([
+    npmInstallAsync().then(() => { timings.installDone = Date.now() - installStart; }),
+    fetch(config.snapshotBlobUrl).then(r => r.text()).then(v => { timings.htmlDownloadMs = Date.now() - downloadStart; return v; }),
+    fetch(config.dataUriMapBlobUrl).then(r => r.json()).then(v => { timings.mapDownloadMs = Date.now() - downloadStart; return v; }),
+  ]);
+  timings.setupDone = Date.now() - timings.jobStart;
 
   const { query } = await import('@anthropic-ai/claude-agent-sdk');
   const { put } = await import('@vercel/blob');
 
+  // Write Bento files once at a shared path; each variation gets them via
+  // a copy rather than four fresh writeFileSyncs (trivial win but free).
+  const sharedBento = '/vercel/sandbox/_bento';
+  if (config.bento) {
+    mkdirSync(sharedBento, { recursive: true });
+    writeFileSync(sharedBento + '/bento-tokens.css', config.bento.tokensCss);
+    writeFileSync(sharedBento + '/bento.css', config.bento.componentsCss);
+    writeFileSync(sharedBento + '/bento-reference.md', config.bento.referenceMd);
+    writeFileSync(sharedBento + '/bento-safety.css', config.bento.safetyCss);
+  }
+
   async function runVariation(i) {
+    const vStart = Date.now();
     const dir = '/vercel/sandbox/v' + i;
     mkdirSync(dir, { recursive: true });
     writeFileSync(dir + '/page.html', strippedHtml);
 
+    // Copy Bento files into the variation dir so the agent can still Read
+    // them if it wants. (Content is also inlined into the system prompt.)
     if (config.bento) {
       writeFileSync(dir + '/bento-tokens.css', config.bento.tokensCss);
       writeFileSync(dir + '/bento.css', config.bento.componentsCss);
@@ -172,15 +217,7 @@ try {
       }
     }
 
-    // Upload turn log to Blob for debugging
-    const logBlob = await put('mocker/' + config.snapshotName + '/log-' + i + '.json', JSON.stringify(turns, null, 2), {
-      access: 'public',
-      contentType: 'application/json',
-      addRandomSuffix: true,
-      token: process.env.BLOB_READ_WRITE_TOKEN,
-    });
-
-    updateStatus({ phase: 'uploading', variation: i, total: config.count, results, logUrl: logBlob.url });
+    updateStatus({ phase: 'uploading', variation: i, total: config.count, results });
     let modified = readFileSync(dir + '/page.html', 'utf-8');
 
     let bentoInjection = null;
@@ -208,17 +245,27 @@ try {
 
     const final = restoreDataUris(modified, dataUriMap);
 
-    const blob = await put('mocker/' + config.snapshotName + '/remix-' + i + '.html', final, {
-      access: 'public',
-      contentType: 'text/html',
-      addRandomSuffix: true,
-      token: process.env.BLOB_READ_WRITE_TOKEN,
-    });
+    // Upload turn log + final HTML to Blob in parallel
+    const [logBlob, blob] = await Promise.all([
+      put('mocker/' + config.snapshotName + '/log-' + i + '.json', JSON.stringify(turns, null, 2), {
+        access: 'public',
+        contentType: 'application/json',
+        addRandomSuffix: true,
+        token: process.env.BLOB_READ_WRITE_TOKEN,
+      }),
+      put('mocker/' + config.snapshotName + '/remix-' + i + '.html', final, {
+        access: 'public',
+        contentType: 'text/html',
+        addRandomSuffix: true,
+        token: process.env.BLOB_READ_WRITE_TOKEN,
+      }),
+    ]);
 
     const entry = { variationNumber: i, blobUrl: blob.url, fileName: 'remix-' + i + '.html' };
     if (bentoInjection) entry.bentoInjection = bentoInjection;
     results.push(entry);
-    updateStatus({ phase: 'variation-complete', variation: i, total: config.count, results });
+    timings['variation' + i + 'Ms'] = Date.now() - vStart;
+    updateStatus({ phase: 'variation-complete', variation: i, total: config.count, results, logUrl: logBlob.url });
   }
 
   // Run all variations in parallel — each gets its own directory
@@ -234,8 +281,10 @@ try {
     throw new Error(errors.join('; '));
   }
 
+  timings.jobTotalMs = Date.now() - timings.jobStart;
   updateStatus({ phase: 'done', results, errors: errors.length ? errors : undefined });
 } catch (err) {
+  timings.jobTotalMs = Date.now() - timings.jobStart;
   updateStatus({ phase: 'error', error: err.message || String(err), results });
 }
 `;
@@ -252,6 +301,7 @@ export interface RemixJobStatus {
   error?: string;
   updatedAt?: number;
   sandboxStatus?: string;
+  timings?: Record<string, number>;
 }
 
 export async function startRemixJob(opts: {
@@ -276,7 +326,7 @@ export async function startRemixJob(opts: {
   });
 
   let systemPrompt = SYSTEM_PROMPT;
-  if (opts.bento) systemPrompt += BENTO_ADDENDUM;
+  if (opts.bento) systemPrompt += buildBentoAddendum(opts.bento.referenceMd);
   if (opts.useFocusAreas) systemPrompt += FOCUS_ADDENDUM;
 
   const config = {
