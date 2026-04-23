@@ -510,6 +510,10 @@ body {
   color: var(--color-text);
 }
 
+.btn-icon[hidden] {
+  display: none;
+}
+
 .btn-icon:disabled {
   opacity: 0.4;
   cursor: not-allowed;
@@ -678,7 +682,7 @@ textarea:focus {
 }
 
 .btn-block {
-  display: block;
+  display: flex;
   width: 100%;
 }
 
@@ -900,18 +904,27 @@ textarea:focus {
   border-radius: var(--radius-md);
   font-size: 13px;
   outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
   background: var(--color-input-bg);
   color: var(--color-text);
+}
+
+.field-inline select:focus {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px var(--color-input-focus);
 }
 
 /* Remix status + spinner */
 .remix-status {
   font-size: 12px;
   color: var(--color-text-secondary);
-  margin-top: 10px;
   display: flex;
   align-items: center;
   gap: 6px;
+}
+
+.remix-status[hidden] {
+  display: none;
 }
 
 .remix-status.error {
@@ -1084,6 +1097,14 @@ textarea:focus {
 /* ══════════════════════════════════════════════════════════════
    Toggle Switches
    ══════════════════════════════════════════════════════════════ */
+.remix-toggles {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
 .remix-bento-toggle {
   display: inline-flex;
   align-items: center;
@@ -1092,7 +1113,6 @@ textarea:focus {
   color: var(--color-text-muted);
   cursor: pointer;
   user-select: none;
-  margin-bottom: 10px;
 }
 
 .remix-bento-toggle + .remix-bento-toggle {
@@ -1257,6 +1277,10 @@ textarea:focus {
   flex-wrap: wrap;
   gap: 6px;
   padding: 8px 10px 4px;
+}
+
+.focus-area-chips[hidden] {
+  display: none;
 }
 
 .focus-area-chip {

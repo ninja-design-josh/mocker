@@ -745,12 +745,16 @@ async function init() {
   hasRepoCreds = checkRepoCreds(settings);
 
   if (!isConfigured(settings)) {
+    currentSnapshotId = null;
+    setVersionTreeVisible(false);
     showPhase('noConfig');
     return;
   }
 
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab?.url) {
+    currentSnapshotId = null;
+    setVersionTreeVisible(false);
     showPhase('noTab');
     return;
   }
@@ -771,6 +775,8 @@ async function init() {
     repoOptions.hidden = true;
   }
 
+  currentSnapshotId = null;
+  setVersionTreeVisible(false);
   showPhase('capture');
 }
 
@@ -884,6 +890,7 @@ saveToRepoBtn.addEventListener('click', async () => {
     repoResult.hidden = false;
     saveToRepoBtn.hidden = true;
   } catch (err) {
+    showToast(err.message || 'Failed to save to repo');
     saveToRepoBtn.title = 'Failed — click to retry';
     setTimeout(() => {
       saveToRepoBtn.title = 'Save to repo';
@@ -1256,8 +1263,7 @@ async function dispatchRemix(finalPrompt, ctx) {
     await refreshVersionTree();
     showPhase('prompt');
   } catch (err) {
-    remixStatus.className = 'remix-status error';
-    setRemixStatus(err.message || 'Remix failed', false);
+    showToast(err.message || 'Remix failed');
     showPhase('prompt');
   } finally {
     remixBtn.disabled = false;
