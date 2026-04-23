@@ -1,25 +1,101 @@
+/* ── Light theme tokens ─────────────────────────────── */
+:root {
+  --color-primary: #1E66F0;
+  --color-primary-hover: #1A5AD7;
+  --color-primary-focus: rgba(30, 102, 240, 0.15);
+
+  --color-text: #1c1c1e;
+  --color-text-secondary: #636366;
+  --color-text-muted: #8e8e93;
+
+  --color-bg: #f2f2f7;
+  --color-bg-elevated: #ffffff;
+  --color-bg-secondary: #e5e5ea;
+
+  --color-border: #d1d1d6;
+  --color-divider: #e5e5ea;
+
+  --color-input-bg: #ffffff;
+
+  --color-success: #248a3d;
+  --color-success-bg: #dcfce7;
+
+  --color-error: #d70015;
+  --color-error-bg: #fdedef;
+
+  --color-info-text: #1A5AD7;
+  --color-info-bg: rgba(30, 102, 240, 0.08);
+
+  --color-hint-code-bg: #f0f0f3;
+
+  --color-shadow: rgba(0, 0, 0, 0.1);
+
+  --color-btn-primary-text: #ffffff;
+}
+
+/* ── Dark theme tokens ──────────────────────────────── */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-primary: #4A90F7;
+    --color-primary-hover: #5DA0FF;
+    --color-primary-focus: rgba(74, 144, 247, 0.2);
+
+    --color-text: #f2f2f7;
+    --color-text-secondary: #aeaeb2;
+    --color-text-muted: #636366;
+
+    --color-bg: #1c1c1e;
+    --color-bg-elevated: #2c2c2e;
+    --color-bg-secondary: #3a3a3c;
+
+    --color-border: #48484a;
+    --color-divider: #48484a;
+
+    --color-input-bg: #1c1c1e;
+
+    --color-success: #30d158;
+    --color-success-bg: rgba(48, 209, 88, 0.12);
+
+    --color-error: #ff453a;
+    --color-error-bg: rgba(255, 69, 58, 0.12);
+
+    --color-info-text: #4A90F7;
+    --color-info-bg: rgba(74, 144, 247, 0.10);
+
+    --color-hint-code-bg: #3a3a3c;
+
+    --color-shadow: rgba(0, 0, 0, 0.4);
+
+    --color-btn-primary-text: #ffffff;
+  }
+}
+
+/* ── Reset ──────────────────────────────────────────── */
 * {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
 }
 
+/* ── Body ───────────────────────────────────────────── */
 body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  background: #f5f5f7;
-  color: #1d1d1f;
+  background: var(--color-bg);
+  color: var(--color-text);
   line-height: 1.5;
 }
 
+/* ── Container ──────────────────────────────────────── */
 .container {
   max-width: 520px;
   margin: 40px auto;
-  background: #fff;
+  background: var(--color-bg-elevated);
   border-radius: 12px;
   padding: 32px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 1px 3px var(--color-shadow);
 }
 
+/* ── Typography ─────────────────────────────────────── */
 h1 {
   font-size: 22px;
   font-weight: 600;
@@ -27,11 +103,18 @@ h1 {
 }
 
 .subtitle {
-  color: #6e6e73;
+  color: var(--color-text-muted);
   font-size: 14px;
   margin-bottom: 24px;
 }
 
+.section-title {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 16px;
+}
+
+/* ── Fields ─────────────────────────────────────────── */
 .field {
   margin-bottom: 18px;
 }
@@ -43,38 +126,43 @@ label {
   margin-bottom: 4px;
 }
 
+/* ── Inputs & selects ───────────────────────────────── */
 input,
 select {
   width: 100%;
   padding: 8px 12px;
-  border: 1px solid #d2d2d7;
+  border: 1px solid var(--color-border);
   border-radius: 8px;
   font-size: 14px;
   outline: none;
   transition: border-color 0.15s;
-  background: #fff;
+  background: var(--color-input-bg);
+  color: var(--color-text);
 }
 
 input:focus,
 select:focus {
-  border-color: #6366f1;
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px var(--color-primary-focus);
 }
 
+/* ── Hints ──────────────────────────────────────────── */
 .hint {
   display: block;
   font-size: 12px;
-  color: #86868b;
+  color: var(--color-text-muted);
   margin-top: 4px;
 }
 
 .hint code {
-  background: #f0f0f3;
+  background: var(--color-hint-code-bg);
   padding: 1px 4px;
   border-radius: 3px;
   font-size: 11px;
+  color: var(--color-text-secondary);
 }
 
+/* ── Password toggle ────────────────────────────────── */
 .input-password {
   position: relative;
 }
@@ -92,7 +180,7 @@ select:focus {
   border: none;
   cursor: pointer;
   padding: 4px;
-  color: #86868b;
+  color: var(--color-text-muted);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -100,7 +188,7 @@ select:focus {
 }
 
 .toggle-password:hover {
-  color: #1d1d1f;
+  color: var(--color-text);
 }
 
 .toggle-password .eye-off-icon {
@@ -115,6 +203,7 @@ select:focus {
   display: block;
 }
 
+/* ── Checkbox fields ────────────────────────────────── */
 .field-checkbox label {
   display: flex;
   align-items: center;
@@ -128,9 +217,20 @@ select:focus {
   cursor: pointer;
 }
 
+/* ── Actions & buttons ──────────────────────────────── */
 .actions {
   display: flex;
   gap: 10px;
+  margin-top: 24px;
+  flex-wrap: wrap;
+}
+
+.actions-top {
+  margin-top: 16px;
+  margin-bottom: 0;
+}
+
+.actions-main {
   margin-top: 24px;
 }
 
@@ -154,15 +254,16 @@ select:focus {
 }
 
 .btn-primary {
-  background: #6366f1;
-  color: #fff;
+  background: var(--color-primary);
+  color: var(--color-btn-primary-text);
 }
 
 .btn-secondary {
-  background: #e5e5ea;
-  color: #1d1d1f;
+  background: var(--color-bg-secondary);
+  color: var(--color-text);
 }
 
+/* ── Status messages ────────────────────────────────── */
 .status {
   margin-top: 16px;
   padding: 10px 14px;
@@ -171,45 +272,28 @@ select:focus {
 }
 
 .status.success {
-  background: #dcfce7;
-  color: #166534;
+  background: var(--color-success-bg);
+  color: var(--color-success);
 }
 
 .status.error {
-  background: #fee2e2;
-  color: #991b1b;
+  background: var(--color-error-bg);
+  color: var(--color-error);
 }
 
 .status.info {
-  background: #e0e7ff;
-  color: #3730a3;
+  background: var(--color-info-bg);
+  color: var(--color-info-text);
 }
 
+/* ── Divider ────────────────────────────────────────── */
 .divider {
   border: none;
-  border-top: 1px solid #e5e5ea;
+  border-top: 1px solid var(--color-divider);
   margin: 24px 0 16px;
 }
 
-.section-title {
-  font-size: 16px;
-  font-weight: 600;
-  margin-bottom: 16px;
-}
-
-.actions {
-  flex-wrap: wrap;
-}
-
-.actions-top {
-  margin-top: 16px;
-  margin-bottom: 0;
-}
-
-.actions-main {
-  margin-top: 24px;
-}
-
+/* ── Details / collapsible ──────────────────────────── */
 details {
   margin-bottom: 8px;
 }
