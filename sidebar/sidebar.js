@@ -4,15 +4,18 @@ const STORAGE_KEY = 'mocker_settings';
 const MAX_REFERENCE_IMAGES = 10;
 const MAX_REFERENCE_IMAGE_BYTES = 5 * 1024 * 1024; // 5 MB — Claude's per-image limit
 
-const sections = {
+const phases = {
   noConfig: document.getElementById('no-config'),
   noTab: document.getElementById('no-tab'),
-  captureForm: document.getElementById('capture-form'),
+  capture: document.getElementById('capture-form'),
   progress: document.getElementById('progress'),
-  result: document.getElementById('result'),
+  prompt: document.getElementById('phase-prompt'),
+  plan: document.getElementById('phase-plan'),
+  remixProgress: document.getElementById('phase-remix-progress'),
   error: document.getElementById('error'),
-  history: document.getElementById('history'),
 };
+const historySection = document.getElementById('history');
+const versionTreeSection = document.getElementById('version-tree-section');
 
 const currentUrlEl = document.getElementById('current-url');
 const snapshotNameInput = document.getElementById('snapshot-name');
@@ -34,7 +37,7 @@ const saveToRepoBtn = document.getElementById('save-to-repo-btn');
 const newCaptureBtn = document.getElementById('new-capture-btn');
 const repoResult = document.getElementById('repo-result');
 const resultUrl = document.getElementById('result-url');
-const remixSection = document.getElementById('remix-section');
+const remixSection = document.getElementById('phase-prompt');
 const remixPrompt = document.getElementById('remix-prompt');
 const remixCount = document.getElementById('remix-count');
 const remixUseBento = document.getElementById('remix-use-bento');
@@ -51,7 +54,7 @@ const remixStatus = document.getElementById('remix-status');
 const remixTurns = document.getElementById('remix-turns');
 const remixSourceName = document.getElementById('remix-source-name');
 const clearRemixSource = document.getElementById('clear-remix-source');
-const versionTreeCard = document.getElementById('version-tree-card');
+const versionTreeCard = versionTreeSection; // alias for backward compat
 const versionTree = document.getElementById('version-tree');
 const tabCapture = document.getElementById('tab-capture');
 const tabHistory = document.getElementById('tab-history');
@@ -79,7 +82,8 @@ let hasVercelBackend = false;
 let hasRepoCreds = false;
 let currentBlobUrl = null;
 let activeTab = 'capture'; // 'capture' or 'history'
-let lastCaptureSection = 'captureForm'; // remember which capture section was showing
+let currentPhase = null;
+let lastCapturePhase = 'capture'; // remember which capture phase was showing
 
 // Track spinner elements for active remixes on history cards, keyed by snapshotId
 const historySpinners = new Map();
@@ -98,17 +102,27 @@ let focusAreas = [];        // [{ index, selector, tagName, id, classes, textPre
 let focusScreenshotUrl = null; // Blob URL of annotated screenshot with overlays
 let focusPickerActive = false;
 
-// Capture-flow sections (everything except history)
-const captureSections = ['noConfig', 'noTab', 'captureForm', 'progress', 'result', 'error'];
+// Capture-flow phases (everything except history)
+const capturePhases = ['noConfig', 'noTab', 'capture', 'progress', 'prompt', 'plan', 'remixProgress', 'error'];
 
-function showSection(name) {
-  // Hide all sections
-  Object.values(sections).forEach(el => el.hidden = true);
-  sections[name].hidden = false;
-  // Track last capture section so we can restore when switching tabs
-  if (captureSections.includes(name)) {
-    lastCaptureSection = name;
+function showPhase(name) {
+  // Hide all phase containers
+  Object.values(phases).forEach(el => el.hidden = true);
+  historySection.hidden = true;
+  if (name === 'history') {
+    historySection.hidden = false;
+  } else {
+    phases[name].hidden = false;
   }
+  currentPhase = name;
+  // Track last capture phase so we can restore when switching tabs
+  if (capturePhases.includes(name)) {
+    lastCapturePhase = name;
+  }
+}
+
+function setVersionTreeVisible(visible) {
+  versionTreeSection.hidden = !visible;
 }
 
 // Route blob URLs through the backend preview proxy so Chrome renders the
@@ -282,12 +296,10 @@ function truncate(str, len) {
 function renderVersionTree(versions) {
   versionTree.innerHTML = '';
   if (!versions.length) {
-    versionTreeCard.hidden = true;
     return;
   }
 
   labelVersions(versions);
-  versionTreeCard.hidden = false;
 
   // Sort by createdAt for display order, but grouped by tree structure
   function renderSubtree(parentId, depth) {
@@ -446,9 +458,11 @@ function switchTab(tab) {
   tabHistory.classList.toggle('active', tab === 'history');
 
   if (tab === 'capture') {
-    showSection(lastCaptureSection);
+    showPhase(lastCapturePhase);
+    setVersionTreeVisible(!!currentSnapshotId);
   } else {
-    showSection('history');
+    setVersionTreeVisible(false);
+    showPhase('history');
     loadFullHistory();
   }
 }
@@ -705,11 +719,11 @@ async function loadSnapshotWorkspace(snapshotId, snapshotData) {
   // Save to repo button
   saveToRepoBtn.hidden = !hasRepoCreds || !!snapshotData.repoUrl;
 
-  // Show remix section if backend configured
-  remixSection.hidden = !hasVercelBackend;
+  // Reset remix state (prompt phase IS the remix section now)
   resetRemixState();
 
-  showSection('result');
+  setVersionTreeVisible(true);
+  showPhase('prompt');
   await refreshVersionTree();
 }
 
@@ -731,13 +745,13 @@ async function init() {
   hasRepoCreds = checkRepoCreds(settings);
 
   if (!isConfigured(settings)) {
-    showSection('noConfig');
+    showPhase('noConfig');
     return;
   }
 
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab?.url) {
-    showSection('noTab');
+    showPhase('noTab');
     return;
   }
 
@@ -757,7 +771,7 @@ async function init() {
     repoOptions.hidden = true;
   }
 
-  showSection('captureForm');
+  showPhase('capture');
 }
 
 // ── Capture ───────────────────────────────────────────────────────────
@@ -774,7 +788,7 @@ saveBtn.addEventListener('click', async () => {
   const branchSlug = branch ? branch.replace(/[^a-z0-9/_-]+/gi, '-').toLowerCase() : 'main';
 
   saveBtn.disabled = true;
-  showSection('progress');
+  showPhase('progress');
   setProgress(5, 'Capturing page...');
 
   try {
@@ -805,7 +819,7 @@ saveBtn.addEventListener('click', async () => {
     await loadSnapshotWorkspace(response.snapshotId, snapshotData);
   } catch (err) {
     errorText.textContent = err.message || 'Unknown error';
-    showSection('error');
+    showPhase('error');
   } finally {
     saveBtn.disabled = false;
   }
@@ -855,7 +869,7 @@ copyPreviewBtn.addEventListener('click', () => {
 saveToRepoBtn.addEventListener('click', async () => {
   if (!currentSnapshotId) return;
   saveToRepoBtn.disabled = true;
-  saveToRepoBtn.textContent = 'Saving...';
+  saveToRepoBtn.title = 'Saving...';
 
   try {
     const resp = await chrome.runtime.sendMessage({
@@ -870,9 +884,9 @@ saveToRepoBtn.addEventListener('click', async () => {
     repoResult.hidden = false;
     saveToRepoBtn.hidden = true;
   } catch (err) {
-    saveToRepoBtn.textContent = 'Failed';
+    saveToRepoBtn.title = 'Failed — click to retry';
     setTimeout(() => {
-      saveToRepoBtn.textContent = 'Save to repo';
+      saveToRepoBtn.title = 'Save to repo';
       saveToRepoBtn.disabled = false;
     }, 2000);
   }
@@ -883,7 +897,8 @@ newCaptureBtn.addEventListener('click', () => {
   currentSnapshotId = null;
   clearRemixSourceFn();
   setBranchMode('new');
-  showSection('captureForm');
+  setVersionTreeVisible(false);
+  showPhase('capture');
   refreshActiveTab();
 });
 
@@ -1181,10 +1196,8 @@ function resetRemixState() {
   remixStatus.className = 'remix-status';
   remixTurns.hidden = true;
   remixTurns.innerHTML = '';
-  if (planPanel) planPanel.hidden = true;
   if (planBullets) planBullets.value = '';
   if (planQuestionsEl) planQuestionsEl.innerHTML = '';
-  if (remixComposerSection) remixComposerSection.hidden = false;
   pendingPlanContext = null;
   resetReferenceImages();
   clearFocusAreas();
@@ -1224,6 +1237,7 @@ async function dispatchRemix(finalPrompt, ctx) {
   remixStatus.hidden = false;
   remixStatus.className = 'remix-status';
   setRemixStatus(`Generating variation 1 of ${ctx.count}...`, true);
+  showPhase('remixProgress');
 
   try {
     const action = remixSourceVersionId ? 'remixFromVersion' : 'remixSnapshot';
@@ -1240,9 +1254,11 @@ async function dispatchRemix(finalPrompt, ctx) {
     resetReferenceImages();
     clearFocusAreas();
     await refreshVersionTree();
+    showPhase('prompt');
   } catch (err) {
     remixStatus.className = 'remix-status error';
     setRemixStatus(err.message || 'Remix failed', false);
+    showPhase('prompt');
   } finally {
     remixBtn.disabled = false;
   }
@@ -1277,19 +1293,17 @@ function renderPlanPanel(plan, questions) {
     planQuestionsEl.appendChild(row);
   });
 
-  remixComposerSection.hidden = true;
-  planPanel.hidden = false;
+  showPhase('plan');
 }
 
 function hidePlanPanel() {
-  planPanel.hidden = true;
-  remixComposerSection.hidden = false;
   planBullets.value = '';
   planQuestionsEl.innerHTML = '';
   pendingPlanContext = null;
   remixBtn.classList.remove('is-planning');
   remixBtn.textContent = 'Remix';
   remixBtn.disabled = false;
+  showPhase('prompt');
 }
 
 function buildCombinedPrompt(ctx) {
@@ -1322,7 +1336,7 @@ remixBtn.addEventListener('click', async () => {
 
   // Plan-first path: fetch plan, show panel, return. Final dispatch happens
   // after the user confirms/skips in the panel.
-  if (remixPlanFirst.checked && planPanel.hidden) {
+  if (remixPlanFirst.checked && currentPhase !== 'plan') {
     remixBtn.disabled = true;
     remixBtn.classList.add('is-planning');
     remixBtn.textContent = 'Planning…';
@@ -1433,7 +1447,7 @@ remixPrompt.addEventListener('paste', (e) => {
 
 // Drag-and-drop anywhere on the remix card
 (() => {
-  const card = document.getElementById('remix-section');
+  const card = document.getElementById('phase-prompt');
   let dragCounter = 0;
   const hasFiles = (e) => {
     const types = e.dataTransfer?.types;
@@ -1557,20 +1571,20 @@ chrome.runtime.onMessage.addListener((msg) => {
 
 document.getElementById('retry-btn').addEventListener('click', () => {
   setBranchMode('new');
-  showSection('captureForm');
+  showPhase('capture');
   refreshActiveTab();
 });
 
 // Refresh form when user switches tabs (only if capture form is visible)
 chrome.tabs.onActivated.addListener(() => {
-  if (!sections.captureForm.hidden) {
+  if (currentPhase === 'capture') {
     refreshActiveTab();
   }
 });
 
 // Refresh when a page finishes loading in the active tab
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
-  if (changeInfo.status === 'complete' && !sections.captureForm.hidden) {
+  if (changeInfo.status === 'complete' && currentPhase === 'capture') {
     chrome.tabs.query({ active: true, currentWindow: true }).then(([tab]) => {
       if (tab && tab.id === tabId) {
         refreshActiveTab();
